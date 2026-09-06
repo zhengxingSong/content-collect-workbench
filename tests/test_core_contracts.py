@@ -493,3 +493,103 @@ def test_validate_state_rolls_back_corrupt(state_dir, monkeypatch):
     assert _json.loads((state_dir / "x.json").read_text(encoding="utf-8")) == {"a": 2}  # 已回滚
     assert not (state_dir / "stale.tmp").exists()  # 已清理
     assert any("rollback" in a for a in affected)
+
+
+def _run_task(tm, runner, params=None):
+    from backend.core.task_manager import TaskManager
+    rec, _ = tm.create("mp", "collect", params or {"urls": ["u"]}, runner)
+    for _ in range(100):
+        rec = tm.get(rec["task_id"])
+        if rec["status"] not in ("queued", "running", "waiting_auth"):
+            break
+        time.sleep(0.05)
+    return rec
+
+
+def test_task_all_failed_is_failed(state_dir):
+    """全失败必须判 failed，不得误报 partial（上一版 bug）。"""
+    from backend.core.task_manager import TaskManager, FAILED, PARTIAL
+
+    def runner(ctx):
+        ctx.report(total=3)
+        ctx.item("a", "failed", "x")
+        ctx.item("b", "failed", "y")
+        ctx.item("c", "failed", "z")
+
+    rec = _run_task(TaskManager(), runner)
+    assert rec["status"] == FAILED, rec["status"]
+    assert rec["status"] != PARTIAL
+
+
+def test_task_failed_plus_skipped_is_failed(state_dir):
+    """失败+跳过但无成功：无新产物成功，仍判 failed（注明跳过数）。"""
+    from backend.core.task_manager import TaskManager, FAILED
+
+    def runner(ctx):
+        ctx.report(total=3)
+        ctx.item("a", "skipped", "已存在")
+        ctx.item("b", "failed", "boom")
+
+    rec = _run_task(TaskManager(), runner)
+    assert rec["status"] == FAILED
+    assert rec.get("detail", {}).get("skipped_existing") == 1
+
+
+def test_task_all_skipped_is_succeeded_with_note(state_dir):
+    """全部已存在而跳过：不判失败，注明 all_skipped_existing。"""
+    from backend.core.task_manager import TaskManager, SUCCEEDED
+
+    def runner(ctx):
+        ctx.report(total=2)
+        ctx.item("a", "skipped", "已存在")
+        ctx.item("b", "skipped", "已存在")
+
+    rec = _run_task(TaskManager(), runner)
+    assert rec["status"] == SUCCEEDED
+    assert rec.get("detail", {}).get("all_skipped_existing") is True
+
+
+def test_task_mixed_success_failed_is_partial(state_dir):
+    """成功与失败并存 -> partial（保留原行为）。"""
+    from backend.core.task_manager import TaskManager, PARTIAL
+
+    def runner(ctx):
+        ctx.report(total=2)
+        ctx.item("a", "succeeded")
+        ctx.item("b", "failed", "boom")
+
+    rec = _run_task(TaskManager(), runner)
+    assert rec["status"] == PARTIAL
+
+
+def test_platform_strict_host_matching():
+    """URL 平台识别必须用严格域名匹配，伪造域名/端口不容错认。"""
+    from backend.collect_api import _platform_of
+
+    # 正常识别
+    assert _platform_of("https://www.bilibili.com/video/BV1xx") == "bilibili"
+    assert _platform_of("https://b23.tv/abc") == "bilibili"
+    assert _platform_of("https://www.douyin.com/video/1") == "douyin"
+    assert _platform_of("https://mp.weixin.qq.com/s/x") == "mp"
+    assert _platform_of("https://www.kuaishou.com/short-video/x") == "kuaishou"
+    assert _platform_of("https://www.xiaohongshu.com/explore/x") == "xiaohongshu"
+    # 端口不影响 hostname 判定
+    assert _platform_of("https://bilibili.com:8443/v/1") == "bilibili"
+    # 伪造域名不误命中
+    assert _platform_of("https://evilbilibili.com/x") == "generic"
+    assert _platform_of("https://notdouyin.com/x") == "generic"
+    assert _platform_of("https://bilibili.com.evil.com/x") == "generic"
+    # 非 http(s) / 无 hostname
+    assert _platform_of("javascript:alert(1)") == "generic"
+    assert _platform_of("") == "generic"
+
+
+def test_canonical_platform_id():
+    """detect 平台名 → 内容库存储名 的一致映射（单一事实来源）。"""
+    from backend.core.urlnorm import canonical_platform_id
+    assert canonical_platform_id("bilibili") == "bili"
+    assert canonical_platform_id("kuaishou") == "ks"
+    assert canonical_platform_id("xiaohongshu") == "xhs"
+    assert canonical_platform_id("mp") == "mp"
+    assert canonical_platform_id("channels") == "channels"
+    assert canonical_platform_id("unknown") == "unknown"

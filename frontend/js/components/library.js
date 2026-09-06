@@ -60,21 +60,39 @@ const LibraryPage = {
             box.innerHTML = `<table class="dash-table">
                 <thead><tr><th>标题</th><th>平台</th><th>作者</th><th>发布时间</th><th>收集时间</th><th>状态</th><th style="min-width:180px">操作</th></tr></thead>
                 <tbody>${this._entries.map(e => `<tr>
-                    <td title="entry_id: ${e.id}">${(e.title || '(无标题)').slice(0, 44)}</td>
+                    <td title="entry_id: ${this._esc(e.id)}">${this._esc((e.title || '(无标题)').slice(0, 44))}</td>
                     <td>${this._platformName(e.platform)}</td>
-                    <td>${e.author || '-'}</td>
-                    <td>${(e.publish_time || '').slice(0, 10) || '-'}</td>
-                    <td>${(e.collect_time || '').slice(0, 16)}</td>
+                    <td>${this._esc(e.author || '-')}</td>
+                    <td>${this._esc((e.publish_time || '').slice(0, 10) || '-')}</td>
+                    <td>${this._esc((e.collect_time || '').slice(0, 16))}</td>
                     <td><span class="dash-tag ${e.collection_status}">${e.collection_status === 'complete' ? '完整' : '部分'}</span></td>
                     <td>
-                        <button class="btn btn-ghost btn-sm" onclick="LibraryPage.preview('${e.id}')">预览</button>
-                        <button class="btn btn-ghost btn-sm" onclick="window.open('/api/library/entries/${e.id}/download','_blank')">下载打包</button>
-                        <button class="btn btn-ghost btn-sm" onclick="LibraryPage.openFolder('${e.id}')">打开目录</button>
+                        <button class="btn btn-ghost btn-sm" data-act="preview" data-id="${this._escAttr(e.id)}">预览</button>
+                        <button class="btn btn-ghost btn-sm" data-act="download" data-id="${this._escAttr(e.id)}">下载打包</button>
+                        <button class="btn btn-ghost btn-sm" data-act="folder" data-id="${this._escAttr(e.id)}">打开目录</button>
                     </td>
                 </tr>`).join('')}</tbody></table>`;
+            // 事件委托：外部数据不拼进内联 onclick，统一从此处按 data-act 分发
+            box.querySelectorAll('button[data-act]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.id, act = btn.dataset.act;
+                    if (act === 'preview') this.preview(id);
+                    else if (act === 'download') window.open(`/api/library/entries/${encodeURIComponent(id)}/download`, '_blank');
+                    else if (act === 'folder') this.openFolder(id);
+                });
+            });
         } catch (e) {
             box.innerHTML = '<p class="dash-muted">内容库读取失败</p>';
         }
+    },
+
+    // 文本转义：所有可能来自外部平台的非可信字段必须先 _esc 再进 innerHTML
+    _esc(s) {
+        return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    },
+    _escAttr(s) {
+        return this._esc(s);
     },
 
     _platformName(p) {
@@ -86,14 +104,11 @@ const LibraryPage = {
         const entry = (meta.data && meta.data.entry) || {};
         const hasBody = (entry.files || []).some(f => f.path.startsWith('content.'));
         if (!hasBody) { Toast.warning('该条目无可预览正文'); return; }
-        // 新窗口全页阅读（沙箱禁脚本 + CSP 防护仍然生效）
-        window.open(`/api/library/entries/${entryId}/preview`, '_blank');
-        // sandbox=""（无 allow-scripts）：采集内容中的脚本一律不执行（§4）；
-        // 预览由 /preview 端点渲染：本地图片优先 + 文章排版
-        Modal.open({
-            title: `${(entry.title || '(无标题)').slice(0, 40)} <span style="opacity:.6">(预览)</span>`,
-            content: `<iframe src="${url}" sandbox="" style="width:100%;height:62vh;border:1px solid var(--border-color);border-radius:8px;background:#fff"></iframe>`,
-        });
+        // 单一预览方式：新窗口全页阅读（沙箱禁脚本 + CSP 防护仍然生效）。
+        // 不用 iframe 弹窗，避免与 window.open 双重打开且产生未定义变量引用。
+        const previewUrl = `/api/library/entries/${encodeURIComponent(entryId)}/preview`;
+        const w = window.open(previewUrl, '_blank');
+        if (!w) { Toast.warning('弹窗被浏览器拦截，请允许本站弹出窗口后重试'); }
     },
 
     async openFolder(entryId) {
@@ -102,7 +117,7 @@ const LibraryPage = {
             Modal.open({
                 title: '容器模式提示',
                 content: `<p style="line-height:1.8">当前服务运行在 Docker 容器中，无法直接打开宿主机文件管理器。</p>
-                    <p style="line-height:1.8">宿主机路径：<code>${r.data.path}</code></p>
+                    <p style="line-height:1.8">宿主机路径：<code>${this._esc(r.data.path)}</code></p>
                     <p style="line-height:1.8">可改用条目操作里的「下载打包」获取完整文件。</p>`,
             });
         } else if (r.success) {

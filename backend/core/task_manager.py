@@ -198,16 +198,40 @@ class TaskManager:
             record["error"] = {"code": ErrorCode.INTERNAL, "message": str(e), "retryable": False}
             self._set_status(record, FAILED)
         else:
-            progress = record["progress"]
-            items = record["items"]
-            if items and any(i["status"] == "failed" for i in items):
-                self._set_status(record, PARTIAL)
-            elif progress.get("total", 0) == 0 and not items:
-                record["error"] = {"code": ErrorCode.INTERNAL,
-                                   "message": "任务未产出任何条目", "retryable": True}
-                self._set_status(record, FAILED)
-            else:
-                self._set_status(record, SUCCEEDED)
+            self._aggregate(record)
+
+    def _aggregate(self, record: dict) -> None:
+        """将分条目结果聚合为任务终态（§8.2）。
+
+        规则（诚实反映"是否存在未成功的失败"）：
+        - 有失败 且 有成功        -> partially_succeeded
+        - 有失败 且 无成功        -> failed（即使有跳过项，也没有新产物成功）
+        - 无失败 且 有成功        -> succeeded
+        - 无失败 且 全为跳过(已存在)-> succeeded + 注明"全部已存在/跳过"
+        - 无任何条目（total==0）  -> failed（无产出）
+        """
+        items = record.get("items", [])
+        n_ok = sum(1 for i in items if i["status"] == "succeeded")
+        n_failed = sum(1 for i in items if i["status"] == "failed")
+        n_skipped = sum(1 for i in items if i["status"] == "skipped")
+        progress = record.setdefault("progress", {"total": 0, "done": 0, "failed": 0, "skipped": 0})
+
+        if not items and progress.get("total", 0) == 0:
+            record["error"] = {"code": ErrorCode.INTERNAL,
+                               "message": "任务未产出任何条目", "retryable": True}
+            self._set_status(record, FAILED)
+        elif n_failed and n_ok:
+            self._set_status(record, PARTIAL)
+        elif n_failed and not n_ok:
+            # 全部失败（或 失败+跳过）：无新产物成功，按失败处理，注明跳过项
+            detail = {"skipped_existing": n_skipped} if n_skipped else None
+            self._set_status(record, FAILED, detail=detail)
+        elif n_skipped and not n_ok:
+            # 全部是"已存在完整产物"而跳过：不视为失败，注明
+            self._set_status(record, SUCCEEDED,
+                             detail={"all_skipped_existing": True, "skipped": n_skipped})
+        else:
+            self._set_status(record, SUCCEEDED)
 
     # ── 状态流转（内部） ──────────────────────────────────
     def _set_status(self, record: dict, status: str, detail: dict | None = None) -> None:

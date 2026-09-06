@@ -57,6 +57,24 @@ def _platform_of(host: str) -> str:
     return "generic"
 
 
+# 平台标识的单一事实来源：collect/分派用 "detect" 名，内容库存储/展示用 "stored" 名。
+# 历史原因 detect 名取全称(bilibili/kuaishou/xiaohongshu)，内容库取短名(bili/ks/xhs)。
+# 新平台接入时在此登记；迁移到统一枚举见 ROADMAP P1-1（含两者兼容映射）。
+PLATFORM_IDS = {
+    "mp": "mp",
+    "channels": "channels",
+    "douyin": "douyin",
+    "bilibili": "bili",
+    "kuaishou": "ks",
+    "xiaohongshu": "xhs",
+}
+
+
+def canonical_platform_id(platform: str) -> str:
+    """detect 平台的存储用 id（内容库/产物目录标识）。未知平台原样返回。"""
+    return PLATFORM_IDS.get(platform, platform)
+
+
 def normalize_url(url: str) -> str:
     """规范化 URL（身份判断用）：剥通用跟踪参数 + 平台白名单参数，其余原样保留。"""
     try:

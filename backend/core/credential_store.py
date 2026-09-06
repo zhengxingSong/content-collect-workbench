@@ -68,16 +68,19 @@ def _dpapi_unprotect(blob: bytes) -> bytes:
 
 
 _MASTER_KEY_CACHE = None
+_MASTER_KEY_BROKEN = False  # 主钥存在但无法读取（解密失败/损坏）：禁止覆盖旧钥
 
 
-def _get_master_key() -> bytes:
-    """读取或创建主密钥。Windows 用 DPAPI 包裹，其余平台 0600 落盘。"""
-    global _MASTER_KEY_CACHE
+def _get_master_key() -> bytes | None:
+    """读取或创建主密钥。返回 None 表示密钥不可用（调用方应失败关闭，不写明文）。"""
+    global _MASTER_KEY_CACHE, _MASTER_KEY_BROKEN
     if _MASTER_KEY_CACHE is not None:
         return _MASTER_KEY_CACHE
-    key = None
+    if _MASTER_KEY_BROKEN:
+        return None
     if MASTER_KEY_FILE.exists():
         raw = MASTER_KEY_FILE.read_bytes()
+        key = None
         if sys.platform == "win32":
             try:
                 key = _dpapi_unprotect(raw)
@@ -85,12 +88,24 @@ def _get_master_key() -> bytes:
                 key = None
         else:
             key = raw
-    if not key:
-        key = Fernet.generate_key()
-        CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
-        payload = _dpapi_protect(key) if sys.platform == "win32" else key
-        MASTER_KEY_FILE.write_bytes(payload)
+            if not key:
+                key = None
+        if not key:
+            # 已有主钥但读不出：绝不新生成覆盖（可能仍有恢复价值），进入需要重新认证的态
+            _MASTER_KEY_BROKEN = True
+            logger.error("主密钥存在但无法解密，保留原文件不覆盖；需要重新初始化凭证")
+            return None
+        _MASTER_KEY_CACHE = key
+        return key
+    # 无主钥：首次创建
+    key = Fernet.generate_key()
+    CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = _dpapi_protect(key) if sys.platform == "win32" else key
+    MASTER_KEY_FILE.write_bytes(payload)
+    try:
         _restrict_perms(MASTER_KEY_FILE)
+    except Exception:
+        pass
     _MASTER_KEY_CACHE = key
     return key
 
@@ -99,17 +114,25 @@ def _fernet() -> "Fernet | None":
     if not _CRYPTO:
         return None
     try:
-        return Fernet(_get_master_key())
+        key = _get_master_key()
+        return Fernet(key) if key else None
     except Exception as e:  # noqa: BLE001
-        logger.warning("凭证加密初始化失败，降级明文存储: %s", e)
+        logger.error("凭证加密初始化失败: %s", e)
         return None
 
 
 def encrypt_secret(plain: str) -> str:
-    """加密敏感字段。返回 base64 密文；不可用时返回原文（调用方日志可见）。"""
+    """加密敏感字段。返回 base64 密文。
+
+    失败关闭：加密能力不可用（缺 cryptography / 主钥不可读）时抛错，
+    绝不静默降级为明文持久化——调用方应据此中止持久化并提示重新认证。
+    """
     f = _fernet()
     if f is None or not plain:
-        return plain
+        raise RuntimeError(
+            "凭证加密不可用（缺少 cryptography 或主密钥不可读），已拒绝明文持久化。"
+            "请检查依赖后重试；如需紧急使用，需显式启用会话级非持久模式。"
+        )
     return f.encrypt(plain.encode()).decode()
 
 
@@ -142,11 +165,8 @@ def protect_credential_file(path: Path, sensitive_fields: tuple[str, ...]) -> bo
         if isinstance(v, str) and v and not v.startswith("gAAAAA"):
             data[k] = encrypt_secret(v)
             changed = True
-    if changed:
+    if changed and _CRYPTO:
         import json as _json
-        path.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        try:
-            _restrict_perms(path)
-        except Exception:
-            pass
+        from backend.core.state_store import atomic_write_json
+        atomic_write_json(path, data, private=True)
     return changed

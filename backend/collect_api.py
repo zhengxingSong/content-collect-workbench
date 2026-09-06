@@ -24,8 +24,9 @@ collect_bp = Blueprint("collect", __name__, url_prefix="/api/collect")
 def detect_url():
     body = request.get_json(silent=True) or {}
     url = (body.get("url") or "").strip()
-    if not url.startswith("http"):
-        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "url is required"))), 400
+    from urllib.parse import urlsplit
+    if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "仅支持 http/https 链接"))), 400
     platform = _platform_of(url)
     data = {"platform": platform, "canonical_url": urlnorm.normalize_url(url),
             "identity_key": urlnorm.identity_key(url), "platform_item_id": urlnorm.platform_item_id(url)}
@@ -38,23 +39,44 @@ def detect_url():
     return jsonify(ok("链接识别成功", data))
 
 
-def _platform_of(url: str) -> str:
+def _hostname(url: str) -> str:
+    """从 URL 提取纯 hostname：剔除 userinfo(:@)、端口(:port)、IPv6 括号与结尾点。"""
+    from urllib.parse import urlsplit
     try:
-        from urllib.parse import urlsplit
-        host = urlsplit(url).netloc.lower().removeprefix("www.")
+        netloc = urlsplit(url).netloc.lower()
     except ValueError:
+        return ""
+    if "@" in netloc:
+        netloc = netloc.rsplit("@", 1)[1]
+    # IPv6 字面量如 [::1]:5200
+    if netloc.startswith("["):
+        end = netloc.find("]")
+        return netloc[1:end] if end != -1 else ""
+    host = netloc.split(":", 1)[0]
+    host = host.lstrip(".").rstrip(".")
+    return host
+
+
+def _matches(host: str, *domains: str) -> bool:
+    """精确域名或点边界子域匹配（evilbilibili.com 不会命中 bilibili.com）。"""
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def _platform_of(url: str) -> str:
+    host = _hostname(url)
+    if not host:
         return "generic"
-    if host.endswith("mp.weixin.qq.com"):
+    if _matches(host, "mp.weixin.qq.com"):
         return "mp"
-    if "bilibili.com" in host or "b23.tv" in host:
+    if _matches(host, "bilibili.com", "b23.tv"):
         return "bilibili"
-    if "douyin.com" in host or "iesdouyin.com" in host:
+    if _matches(host, "douyin.com", "iesdouyin.com"):
         return "douyin"
-    if "kuaishou.com" in host:
+    if _matches(host, "kuaishou.com"):
         return "kuaishou"
-    if "xiaohongshu.com" in host or "xhslink.com" in host:
+    if _matches(host, "xiaohongshu.com", "xhslink.com"):
         return "xiaohongshu"
-    if "channels.weixin.qq.com" in host:
+    if _matches(host, "channels.weixin.qq.com"):
         return "channels"
     return "generic"
 
