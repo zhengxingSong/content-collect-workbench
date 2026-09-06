@@ -247,22 +247,21 @@ class TestReleaseAssets:
 
 
 class TestDocumentation:
-    """Verify README and BUILD docs mention x86_64 and macos-15-intel."""
+    """Verify README reflects current Docker-primary runtime and platform coverage."""
 
-    def test_readme_mentions_x86_64(self, readme: str):
-        assert "x86_64" in readme or "x86-64" in readme, (
-            "README must mention x86_64 for Intel Mac users"
+    def test_readme_mentions_docker(self, readme: str):
+        assert "docker compose up -d" in readme or "docker-compose" in readme, (
+            "README must show the Docker quick-start as the primary runtime"
         )
 
-    def test_readme_mentions_arm64(self, readme: str):
-        assert "ARM64" in readme or "arm64" in readme, (
-            "README must mention ARM64 for Apple Silicon users"
+    def test_readme_mentions_mcp(self, readme: str):
+        assert "/mcp" in readme and "MCP" in readme, (
+            "README must surface the MCP endpoint for AI Agent access"
         )
 
-    def test_readme_mentions_intel_apple_silicon_choice(self, readme: str):
-        assert ("Intel" in readme or "intel" in readme) and (
-            "Apple Silicon" in readme or "Apple" in readme
-        ), "README should guide Intel vs Apple Silicon users"
+    def test_readme_mentions_platforms(self, readme: str):
+        for kw in ("微信公众号", "视频号", "抖音", "快手", "小红书", "哔哩哔哩"):
+            assert kw in readme, f"README should name platform {kw}"
 
     def test_build_md_mentions_x86_64(self, build_md: str):
         assert "x86_64" in build_md or "x86-64" in build_md, (

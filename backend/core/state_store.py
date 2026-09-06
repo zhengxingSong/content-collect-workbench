@@ -41,19 +41,34 @@ def _restrict_perms(path: Path) -> None:
         pass
 
 
-def atomic_write_json(path: Path, data, *, private: bool = False) -> None:
-    """原子写 JSON：临时文件 + os.replace，避免半写损坏。"""
+def _write_json_atomic(path: Path, payload: str, private: bool) -> None:
+    """核心原子写：先写 .tmp 并 fsync，替换前备份旧文件，再 os.replace。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    payload = json.dumps(data, ensure_ascii=False, indent=2)
     with _json_lock:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
+        # 单代备份：替换前把现有有效文件备份为 .bak，供损坏时回滚
+        if path.exists():
+            try:
+                with open(path, "rb") as f:
+                    head = f.read(1)
+                if head:  # 仅备份非空旧文件
+                    import shutil
+                    shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
+            except OSError:
+                pass
         os.replace(tmp, path)
     if private:
         _restrict_perms(path)
+
+
+def atomic_write_json(path: Path, data, *, private: bool = False) -> None:
+    """原子写 JSON：临时文件 + 单代 .bak 备份 + os.replace，避免半写损坏。"""
+    payload = json.dumps(data, ensure_ascii=False, indent=2)
+    _write_json_atomic(path, payload, private)
 
 
 def read_json(path: Path, default=None):
@@ -88,6 +103,39 @@ def read_jsonl(path: Path) -> list[dict]:
                 out.append(json.loads(line))
             except json.JSONDecodeError:
                 continue  # 半写行：跳过，不视为致命
+    return out
+
+
+def validate_state_dir() -> None:
+    """启动时校验 state/：清理残留 .tmp、校验 JSON 可解析、损坏则回滚 .bak 或标记。
+
+    返回受影响文件列表（供日志），不抛异常——尽可能自愈，绝不阻塞启动。
+    """
+    import shutil as _shutil
+    affected: list[str] = []
+    for path in STATE_DIR.rglob("*.json"):
+        if path.name.endswith(".json.bak") or path.name.endswith(".json.tmp"):
+            continue
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            bak = path.with_suffix(path.suffix + ".bak")
+            if bak.exists():
+                try:
+                    _shutil.copyfile(bak, path)
+                    affected.append(f"rollback:{path.name}")
+                except OSError:
+                    affected.append(f"rollback-fail:{path.name}")
+            else:
+                affected.append(f"corrupt-no-bak:{path.name}")
+    # 清理残留 .tmp（上次进程异常退出遗留）
+    for tmp in STATE_DIR.rglob("*.tmp"):
+        try:
+            tmp.unlink()
+            affected.append(f"cleanup:{tmp.name}")
+        except OSError:
+            pass
+    return affected
     return out
 
 

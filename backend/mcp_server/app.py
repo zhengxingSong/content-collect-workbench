@@ -29,12 +29,21 @@ def create_app() -> Flask:
         if req_id is None:  # notification
             return None
         if method == "initialize":
-            return {"jsonrpc": "2.0", "id": req_id, "result": {
+            params = msg.get("params") or {}
+            client_version = (params.get("protocolVersion") or "").strip()
+            result = {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False},
                                  "resources": {"subscribe": False, "listChanged": False}},
                 "serverInfo": {"name": SERVER_NAME, "version": __version__},
-            }}
+            }
+            # 协议版本守卫：客户端声明版本不匹配时仍握手成功，但回显提示，避免静默用错版本
+            if client_version and client_version != PROTOCOL_VERSION:
+                result["instructions"] = (
+                    f"协议版本不匹配：客户端声明 {client_version}，服务端实现 {PROTOCOL_VERSION}。"
+                    f"若遇工具调用异常，请将客户端 MCP 版本升级到 {PROTOCOL_VERSION}。"
+                )
+            return {"jsonrpc": "2.0", "id": req_id, "result": result}
         if method == "ping":
             return {"jsonrpc": "2.0", "id": req_id, "result": {}}
         if method == "tools/list":

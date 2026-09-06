@@ -125,7 +125,18 @@ app.register_blueprint(mp_hot_bp)
 BACKEND_PORT = int(os.environ.get("WECHAT_MP_PORT", "5200"))
 from backend.core import state_store
 state_store.ensure_dirs()
+# 启动自愈：校验 state/*.json 可解析（损坏回滚 .bak）、清理残留 .tmp
+for _p in state_store.validate_state_dir():
+    print(f"[state] {_p}", flush=True)
 state_store.ensure_service_token(BACKEND_PORT)
+# 存量明文凭证迁移：就地加密 mp_admin cookie/token（仅首次启动时写一次）
+try:
+    from backend.config import DATA_DIR
+    from backend.core.credential_store import protect_credential_file
+    if protect_credential_file(DATA_DIR / "mp_admin_config.json", ("cookie", "token")):
+        print("[state] 已迁移 mp_admin 凭证为加密存储", flush=True)
+except Exception as _e:  # noqa: BLE001 - 迁移失败不阻塞启动
+    print(f"[state] mp_admin 凭证加密迁移失败（可忽略，下次登录会再加密）: {_e}", flush=True)
 from backend.core.task_manager import task_manager
 task_manager.recover()
 from backend.library import LIBRARY_DIR

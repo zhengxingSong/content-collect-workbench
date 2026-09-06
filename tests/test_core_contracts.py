@@ -458,3 +458,38 @@ def test_mp_blocked_page_detection():
     # 含"环境异常"字样的正常文章不误伤（正文里提到该词）
     article_mention = real.replace('正文', '正文讨论了环境异常问题')
     assert _detect_blocked_page(article_mention) is None
+
+
+def test_credential_store_roundtrip(state_dir, monkeypatch):
+    """敏感凭证加解密往返 + 旧明文透传兼容。"""
+    import importlib
+    from backend.core import state_store
+    from backend.core import credential_store
+    # 用临时 state 目录，避免污染真实凭证
+    monkeypatch.setattr(state_store, "CREDENTIALS_DIR", state_dir / "credentials")
+    importlib.reload(credential_store)
+
+    plain = "cookie=abc;token=xyz"
+    enc = credential_store.encrypt_secret(plain)
+    assert enc != plain and enc.startswith("gAAAAA")
+    assert credential_store.decrypt_secret(enc) == plain
+    # 旧明文透传
+    assert credential_store.decrypt_secret("plain-cookie") == "plain-cookie"
+    # 损坏密文返回 None
+    assert credential_store.decrypt_secret("gAAAAAcorrupted!") is None
+
+
+def test_validate_state_rolls_back_corrupt(state_dir, monkeypatch):
+    """state 校验：损坏 JSON 从 .bak 回滚，残留 .tmp 被清理。"""
+    from backend.core import state_store
+    (state_dir / "x.json").write_text('{"a": 1}', encoding="utf-8")
+    (state_dir / "x.json.bak").write_text('{"a": 2}', encoding="utf-8")
+    (state_dir / "x.json").write_text('{broken', encoding="utf-8")  # 损坏
+    (state_dir / "stale.tmp").write_text("junk", encoding="utf-8")
+
+    import json as _json
+    monkeypatch.setattr(state_store, "STATE_DIR", state_dir)
+    affected = state_store.validate_state_dir()
+    assert _json.loads((state_dir / "x.json").read_text(encoding="utf-8")) == {"a": 2}  # 已回滚
+    assert not (state_dir / "stale.tmp").exists()  # 已清理
+    assert any("rollback" in a for a in affected)

@@ -47,7 +47,15 @@ def _set(status: str, message: str = "", progress: int = 0, qr_image: str | None
 def _get_saved() -> dict | None:
     cfg = load_json(MP_CONFIG_FILE)
     if cfg and cfg.get("cookie") and cfg.get("token"):
-        return cfg
+        # 兼容迁移：旧明文 / 已加密混用场景统一按加密值解密读取
+        from backend.core.credential_store import decrypt_secret
+        out = dict(cfg)
+        out["cookie"] = decrypt_secret(cfg["cookie"])
+        out["token"] = decrypt_secret(cfg["token"])
+        # 解密失败（密钥不匹配/损坏）不返回，视为未认证
+        if out["cookie"] and out["token"]:
+            return out
+        return None
     return None
 
 
@@ -160,12 +168,14 @@ def _do_login():
 
             browser.close()
 
+        from backend.core.credential_store import encrypt_secret
         save_json(MP_CONFIG_FILE, {
-            "cookie": cookie_str,
-            "token": token,
+            "cookie": encrypt_secret(cookie_str),
+            "token": encrypt_secret(token),
             "nickname": nickname,
             "type": "mp_admin",
             "save_time": time.time(),
+            "encrypted": True,
         })
         _set("success", f"登录成功！{nickname or '公众号后台'}", 100)
     except Exception as e:
