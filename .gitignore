@@ -1,0 +1,27 @@
+# 运行时数据与敏感信息（绝不入库）
+data/
+state/
+output/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+venv*/
+.venv/
+
+# Node / Electron 产物
+node_modules/
+desktop/release/
+desktop/dist/
+*.exe
+*.asar
+*.blockmap
+
+# 环境与系统
+.env
+.env.*
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/

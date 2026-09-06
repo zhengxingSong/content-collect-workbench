@@ -1,0 +1,75 @@
+# 多来源数据收集平台 — Docker 运行时（设计文档 §2 拓扑的容器化实现）
+#
+#   backend    Flask 后端（业务/账号池/任务/采集）      -> http://127.0.0.1:5200
+#   mcp        MCP streamableHTTP（45 工具，agent 接入） -> http://127.0.0.1:3333/mcp
+#   wewe-rss   微信读书中转（公众号扫码登录依赖）        -> http://127.0.0.1:4001
+#
+# 端口只发布到宿主机回环（§4 安全模型：容器内 0.0.0.0 + 宿主 127.0.0.1 发布）。
+# 数据全部落在宿主机 ./data ./state ./output，升级/重建容器不丢数据（§17 #12）。
+#
+#   启动：docker compose up -d --build
+#   停止：docker compose stop
+#
+# 已知边界：视频号（channels）依赖 mitm 代理改写宿主机系统代理（Windows 注册表），
+# 必须在宿主机模式（桌面 GUI python 模式或 python app.py）下运行，容器不承载。
+
+services:
+  backend:
+    build: .
+    image: mp-collect-backend:latest
+    container_name: mp-collect-backend
+    restart: unless-stopped
+    command: ["python", "app.py", "--no-browser", "--host", "0.0.0.0", "--port", "5200"]
+    environment:
+      - WMT_HEADLESS=1
+      - WMT_DATA_DIR=/app/data
+      - WMT_STATE_DIR=/app/state
+      - WMT_OUTPUT_DIR=/app/output
+      - WEREAD_PLATFORM_URL=http://wewe-rss:4000
+      - MCP_HEALTH_URL=http://mcp:3333/health
+    ports:
+      - "127.0.0.1:5200:5200"
+    volumes:
+      - ./data:/app/data
+      - ./state:/app/state
+      - ./output:/app/output
+      # 开发友好：代码直接挂载，改代码只需 docker restart mp-collect-backend
+      - ./app.py:/app/app.py
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+    depends_on:
+      - wewe-rss
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5200/api/settings',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  mcp:
+    image: mp-collect-backend:latest
+    container_name: mp-collect-mcp
+    restart: unless-stopped
+    command: ["python", "-m", "backend.mcp_server", "--port", "3333", "--host", "0.0.0.0"]
+    environment:
+      - WECHAT_MP_TOOLS_URL=http://backend:5200
+      - WMT_STATE_DIR=/app/state
+    ports:
+      - "127.0.0.1:3333:3333"
+    volumes:
+      - ./state:/app/state
+      - ./backend:/app/backend
+    depends_on:
+      - backend
+
+  wewe-rss:
+    image: cooderl/wewe-rss-sqlite:latest
+    container_name: mp-collect-wewe-rss
+    restart: unless-stopped
+    environment:
+      - DATABASE_TYPE=sqlite
+      - AUTH_CODE=
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./data/wewe-rss:/app/data

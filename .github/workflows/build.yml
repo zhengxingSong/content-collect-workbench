@@ -1,0 +1,193 @@
+name: Build WeChat MP Tools Executables
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - '*'
+  workflow_dispatch: # 支持在 GitHub 页面上点击按钮手动触发打包
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ms-playwright
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          python -m playwright install chromium --no-shell
+
+      - name: Download WebView2 Evergreen Bootstrapper
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path webview2_bootstrapper
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "webview2_bootstrapper\MicrosoftEdgeWebview2Setup.exe"
+          Write-Host "WebView2 Bootstrapper downloaded: $((Get-Item 'webview2_bootstrapper\MicrosoftEdgeWebview2Setup.exe').Length) bytes"
+
+      - name: Build Windows EXE (Full)
+        run: |
+          pyinstaller --clean --noconfirm wechat_mp_tools.spec
+
+      - name: Compress Windows Full Build
+        shell: powershell
+        run: |
+          Compress-Archive -Path "dist\WeChat MP Tools" -DestinationPath WeChat_MP_Tools_Windows_Full.zip
+
+      - name: Build Windows EXE (Lite)
+        shell: powershell
+        run: |
+          Remove-Item -Recurse -Force build, dist
+          $env:WECHAT_MP_TOOLS_BUNDLE_BROWSER="0"
+          pyinstaller --clean --noconfirm wechat_mp_tools.spec
+
+      - name: Compress Windows Lite Build
+        shell: powershell
+        run: |
+          Compress-Archive -Path "dist\WeChat MP Tools" -DestinationPath WeChat_MP_Tools_Windows_Lite.zip
+
+      - name: Upload Windows Full Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-MP-Tools-Windows-Full
+          path: WeChat_MP_Tools_Windows_Full.zip
+          retention-days: 7
+
+      - name: Upload Windows Lite Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-MP-Tools-Windows-Lite
+          path: WeChat_MP_Tools_Windows_Lite.zip
+          retention-days: 7
+
+  build-macos:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            pyinstaller_arch: arm64
+            platform_machine: arm64
+            arch_label: ARM64
+          - runner: macos-15-intel
+            pyinstaller_arch: x86_64
+            platform_machine: x86_64
+            arch_label: x86-64
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ms-playwright
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Check Runner Machine Architecture
+        run: |
+          echo "Runner uname -m: $(uname -m)"
+          echo "Expected platform.machine: ${{ matrix.platform_machine }}"
+          test "$(uname -m)" = "${{ matrix.platform_machine }}" || {
+            echo "ERROR: runner architecture $(uname -m) does not match expected ${{ matrix.platform_machine }}"
+            exit 1
+          }
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          python -m playwright install chromium --no-shell
+
+      - name: Build macOS APP (Full)
+        run: |
+          WECHAT_MP_TOOLS_TARGET_ARCH="${{ matrix.pyinstaller_arch }}" \
+            pyinstaller --clean --noconfirm wechat_mp_tools.spec
+          # codesign --deep often fails on nested Chromium symlinks. If it fails, we ignore it as PyInstaller's built-in ad-hoc signing is sufficient.
+          codesign --force --deep --sign - "dist/WeChat MP Tools.app" || true
+
+      - name: Verify macOS Full Bundle
+        run: |
+          python scripts/verify_macos_bundle.py "dist/WeChat MP Tools.app" "${{ matrix.platform_machine }}" --require-chromium
+
+      - name: Compress macOS Full Build
+        run: |
+          cd dist
+          ditto -c -k --keepParent "WeChat MP Tools.app" "../WeChat_MP_Tools_macOS_${{ matrix.arch_label }}_Full.zip"
+
+      - name: Upload macOS Full Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-MP-Tools-macOS-${{ matrix.arch_label }}-Full
+          path: WeChat_MP_Tools_macOS_${{ matrix.arch_label }}_Full.zip
+          retention-days: 7
+
+      - name: Build macOS APP (Lite)
+        run: |
+          rm -rf build dist
+          WECHAT_MP_TOOLS_BUNDLE_BROWSER=0 \
+            WECHAT_MP_TOOLS_TARGET_ARCH="${{ matrix.pyinstaller_arch }}" \
+            pyinstaller --clean --noconfirm wechat_mp_tools.spec
+          codesign --force --deep --sign - "dist/WeChat MP Tools.app" || true
+
+      - name: Verify macOS Lite Bundle
+        run: |
+          python scripts/verify_macos_bundle.py "dist/WeChat MP Tools.app" "${{ matrix.platform_machine }}"
+
+      - name: Compress macOS Lite Build
+        run: |
+          cd dist
+          ditto -c -k --keepParent "WeChat MP Tools.app" "../WeChat_MP_Tools_macOS_${{ matrix.arch_label }}_Lite.zip"
+
+      - name: Upload macOS Lite Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeChat-MP-Tools-macOS-${{ matrix.arch_label }}-Lite
+          path: WeChat_MP_Tools_macOS_${{ matrix.arch_label }}_Lite.zip
+          retention-days: 7
+
+  create-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "WeChat MP Tools ${{ startsWith(github.ref_name, 'v') && github.ref_name || format('v{0}', github.ref_name) }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/WeChat-MP-Tools-Windows-Full/WeChat_MP_Tools_Windows_Full.zip
+            artifacts/WeChat-MP-Tools-Windows-Lite/WeChat_MP_Tools_Windows_Lite.zip
+            artifacts/WeChat-MP-Tools-macOS-ARM64-Full/WeChat_MP_Tools_macOS_ARM64_Full.zip
+            artifacts/WeChat-MP-Tools-macOS-ARM64-Lite/WeChat_MP_Tools_macOS_ARM64_Lite.zip
+            artifacts/WeChat-MP-Tools-macOS-x86-64-Full/WeChat_MP_Tools_macOS_x86-64_Full.zip
+            artifacts/WeChat-MP-Tools-macOS-x86-64-Lite/WeChat_MP_Tools_macOS_x86-64_Lite.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

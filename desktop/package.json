@@ -1,0 +1,42 @@
+{
+  "name": "wechat-mp-tools-desktop",
+  "productName": "内容收集工作台",
+  "version": "0.1.0",
+  "description": "多来源数据收集平台桌面端：监督 Flask 后端与 MCP 服务",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  },
+  "build": {
+    "appId": "com.local.wechat-mp-tools",
+    "productName": "内容收集工作台",
+    "directories": { "output": "release" },
+    "files": ["main.js", "src/**/*", "package.json"],
+    "asar": true,
+    "extraResources": [
+      { "from": "../app.py", "to": "service/app.py" },
+      { "from": "../mcp_server.py", "to": "service/mcp_server.py" },
+      { "from": "../requirements.txt", "to": "service/requirements.txt" },
+      { "from": "../backend", "to": "service/backend", "filter": ["**/*", "!__pycache__", "!**/__pycache__/**"] },
+      { "from": "../frontend", "to": "service/frontend" },
+      { "from": "../venv312", "to": "service/venv312" }
+    ],
+    "win": { "target": "nsis" },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "内容收集工作台"
+    }
+  }
+}
