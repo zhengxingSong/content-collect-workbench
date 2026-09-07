@@ -320,17 +320,24 @@ const API = {
 
     // ── 内容库 API（设计文档 §12） ────────────────────────
     library: {
-        list(platform, date) {
+        list(platform, date, q, page, pageSize) {
             const qs = new URLSearchParams();
             if (platform) qs.set('platform', platform);
             if (date) qs.set('date', date);
-            const q = qs.toString();
-            return API.get('/api/library/entries' + (q ? '?' + q : ''), { showError: false });
+            if (q) qs.set('q', q);
+            if (page != null) qs.set('page', page);
+            if (pageSize != null) qs.set('page_size', pageSize);
+            const query = qs.toString();
+            return API.get('/api/library/entries' + (query ? '?' + query : ''), { showError: false });
         },
         get(entryId)            { return API.get(`/api/library/entries/${entryId}`, { showError: false }); },
         export(entryIds, dest)  { return API.post('/api/library/export', { entry_ids: entryIds, dest }); },
         openFolder(entryId)     { return API.post(`/api/library/entries/${entryId}/open-folder`); },
         fileUrl(entryId, path)  { return `/api/library/entries/${entryId}/file?path=${encodeURIComponent(path)}`; },
+        batchDownload(entryIds) { return API.post('/api/library/entries/batch-download', { entry_ids: entryIds }); },
+        backup(dest)            { return API.post('/api/library/backup', { dest }); },
+        validateRestore(path)   { return API.post('/api/library/restore/validate', { path }); },
+        restore(path, mode, confirm) { return API.post('/api/library/restore', { path, mode: mode || 'merge', confirm: !!confirm }); },
     },
 
     // ── 认证请求 API（设计文档 §9） ───────────────────────

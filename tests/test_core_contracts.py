@@ -642,3 +642,60 @@ def test_retry_failed_only_uses_failed_keys(state_dir):
     rec, created, count = tm.retry_failed(original["task_id"], runner)
     assert created and count == 1
     assert rec["params"]["urls"] == ["bad"]
+
+
+def test_library_search_and_pagination(state_dir, library_dir):
+    from backend import library
+    library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/search-a", "Alpha 文本"))
+    library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/search-b", "Beta 文本"))
+    assert len(library.list_entries("mp")) == 2
+    result = library.list_entries("mp", query="测试号", page=1, page_size=1)
+    assert result["total"] == 2 and result["entries"][0]["title"] == "测试文章"
+    result = library.list_entries("mp", page=2, page_size=1)
+    assert result["total"] == 2 and len(result["entries"]) == 1 and result["has_more"] is False
+
+
+def test_library_integrity_detects_missing_and_hash(state_dir, library_dir):
+    from backend import library
+    r = library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/integrity"))
+    entry = library.find_entry(r["entry_id"])
+    meta = json.loads((entry / "metadata.json").read_text(encoding="utf-8"))
+    content = entry / "content.md"
+    content.write_text("tampered", encoding="utf-8")
+    result = library.check_entry_integrity(entry, meta)
+    assert result["status"] == "corrupt"
+    assert any(f["path"] == "content.md" and f["status"] in {"hash_mismatch", "size_mismatch"}
+               for f in result["files"])
+
+
+def test_library_backup_validate_restore_excludes_credentials(state_dir, library_dir, tmp_path):
+    from backend import backup, library
+    r = library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/backup"))
+    dest = tmp_path / "library-backup.zip"
+    created = backup.create_backup(str(dest))
+    assert created["file_count"] >= 2 and dest.exists()
+    validation = backup.validate_backup(str(dest))
+    assert validation["valid"] is True
+    import zipfile
+    with zipfile.ZipFile(dest) as z:
+        names = z.namelist()
+        assert "BACKUP_MANIFEST.json" in names
+        assert not any("credential" in n or "service.json" in n or "mp_admin_config" in n for n in names)
+    # 恢复到当前目录的 merge 模式，条目应保持完整
+    restored = backup.restore_backup(str(dest), "merge")
+    assert restored["credentials_restored"] is False
+    assert restored["restored_entries"] >= 1
+
+
+def test_library_backup_rejects_corrupt_archive(state_dir, library_dir, tmp_path):
+    from backend import backup
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(Exception):
+        backup.validate_backup(str(bad))
+
+
+def test_library_api_page_size_alone_enables_paging(state_dir, library_dir):
+    from backend import library
+    library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/page-size"))
+    assert isinstance(library.list_entries("mp", page=1, page_size=1), dict)

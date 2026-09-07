@@ -192,10 +192,14 @@ def _manifest(entry_dir: Path, media_sources: dict | None = None) -> list[dict]:
 
 # ── 查询与导出（§12） ─────────────────────────────────────
 
-def list_entries(platform: str | None = None, date: str | None = None) -> list[dict]:
+def list_entries(platform: str | None = None, date: str | None = None,
+                query: str | None = None, page: int | None = None,
+                page_size: int = 50) -> list[dict] | dict:
+    """列出条目。无分页参数时保持旧版 list 返回兼容；有 query/page 时返回分页包。"""
     out = []
+    query_lower = (query or "").strip().casefold()
     if not LIBRARY_DIR.exists():
-        return out
+        return {"entries": [], "total": 0, "page": 1, "page_size": page_size, "has_more": False} if page is not None or query_lower else out
     for platform_dir in sorted(LIBRARY_DIR.iterdir()):
         if not platform_dir.is_dir():
             continue
@@ -210,17 +214,29 @@ def list_entries(platform: str | None = None, date: str | None = None) -> list[d
                 meta = state_store.read_json(entry_dir / "metadata.json") or {}
                 if date and not meta.get("collect_time", "").startswith(date):
                     continue
+                author = (meta.get("author") or {}).get("name")
+                if query_lower and query_lower not in f"{meta.get('title') or ''} {author or ''}".casefold():
+                    continue
+                files = meta.get("files") or []
+                media_files = [f for f in files if str(f.get("path", "")).startswith("media/")]
                 out.append({
-                    "id": meta.get("id"),
-                    "platform": platform_dir.name,
-                    "title": meta.get("title"),
-                    "author": (meta.get("author") or {}).get("name"),
-                    "publish_time": meta.get("publish_time"),
-                    "collect_time": meta.get("collect_time"),
-                    "collection_status": meta.get("collection_status"),
-                    "dir": str(entry_dir),
+                    "id": meta.get("id"), "platform": platform_dir.name,
+                    "title": meta.get("title"), "author": author,
+                    "publish_time": meta.get("publish_time"), "collect_time": meta.get("collect_time"),
+                    "collection_status": meta.get("collection_status"), "dir": str(entry_dir),
+                    "file_count": len(files), "media_count": len(media_files),
+                    "total_bytes": sum(int(f.get("size") or 0) for f in files),
+                    "failed_media_count": len(meta.get("failed_items") or []),
+                    "warning_count": len(meta.get("warnings") or []),
                 })
-    return sorted(out, key=lambda e: e.get("collect_time") or "", reverse=True)
+    out.sort(key=lambda e: e.get("collect_time") or "", reverse=True)
+    if page is None and not query_lower:
+        return out
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(page_size or 50), 200))
+    start = (page - 1) * page_size
+    return {"entries": out[start:start + page_size], "total": len(out),
+            "page": page, "page_size": page_size, "has_more": start + page_size < len(out)}
 
 
 def get_entry(entry_id: str) -> dict | None:
@@ -229,7 +245,44 @@ def get_entry(entry_id: str) -> dict | None:
         return None
     meta = state_store.read_json(entry_dir / "metadata.json") or {}
     meta["dir"] = str(entry_dir)
+    meta["integrity"] = check_entry_integrity(entry_dir, meta)
     return meta
+
+
+def check_entry_integrity(entry_dir: Path, meta: dict | None = None) -> dict:
+    """校验条目 manifest 的存在性、大小和 sha256；只读，不修复、不删除。"""
+    meta = meta or (state_store.read_json(entry_dir / "metadata.json") or {})
+    files = meta.get("files") or []
+    results = []
+    for item in files:
+        rel = str(item.get("path") or "")
+        fp = entry_dir / rel
+        status = "ok"
+        reason = ""
+        if not rel or not fp.is_file():
+            status, reason = "missing", "文件不存在"
+        else:
+            try:
+                actual_size = fp.stat().st_size
+                actual_sha = hashlib.sha256(fp.read_bytes()).hexdigest()
+                if item.get("size") is not None and int(item["size"]) != actual_size:
+                    status, reason = "size_mismatch", f"大小不符（记录 {item['size']}，实际 {actual_size}）"
+                elif item.get("sha256") and item["sha256"] != actual_sha:
+                    status, reason = "hash_mismatch", "sha256 校验不符"
+            except OSError as e:
+                status, reason = "unreadable", str(e)
+        results.append({"path": rel, "status": status, **({"reason": reason} if reason else {})})
+    bad = [r for r in results if r["status"] != "ok"]
+    declared_partial = meta.get("collection_status") == "partial" or bool(meta.get("failed_items"))
+    if bad:
+        status = "corrupt" if any(r["status"] in {"hash_mismatch", "size_mismatch"} for r in bad) else "partial"
+    elif declared_partial:
+        status = "partial"
+    else:
+        status = "complete"
+    return {"status": status, "file_count": len(files), "ok_count": len(files) - len(bad),
+            "bad_count": len(bad), "files": results,
+            "warnings": meta.get("warnings") or [], "failed_items": meta.get("failed_items") or []}
 
 
 def export_entries(entry_ids: list[str], dest: str) -> dict:

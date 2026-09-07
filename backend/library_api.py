@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
@@ -19,7 +20,25 @@ library_bp = Blueprint("library", __name__, url_prefix="/api/library")
 def list_entries():
     platform = request.args.get("platform")
     date = request.args.get("date")
-    return jsonify(ok("条目列表", {"entries": library.list_entries(platform, date)}))
+    query = (request.args.get("q") or "").strip()
+    if len(query) > 100:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "q must be at most 100 characters"))), 400
+    page_arg = request.args.get("page")
+    page_size_arg = request.args.get("page_size")
+    try:
+        # 显式 page_size 也意味着分页，从第 1 页开始；完全无分页参数才走旧全量返回。
+        page = int(page_arg) if page_arg is not None else (1 if page_size_arg is not None else None)
+        page_size = int(page_size_arg or 50)
+    except ValueError:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "page and page_size must be integers"))), 400
+    if page is not None and page < 1:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "page must be >= 1"))), 400
+    if page_size < 1 or page_size > 200:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "page_size must be between 1 and 200"))), 400
+    result = library.list_entries(platform, date, query or None, page, page_size)
+    if isinstance(result, list):
+        return jsonify(ok("条目列表", {"entries": result}))
+    return jsonify(ok("条目列表", result))
 
 
 @library_bp.route("/entries/<entry_id>", methods=["GET"])
@@ -42,6 +61,49 @@ def export_entries():
                                          "entry_ids and dest are required"))), 400
     result = library.export_entries(entry_ids, dest)
     return jsonify(ok(f"导出完成 {result['exported']}/{len(entry_ids)}", result))
+
+
+@library_bp.route("/backup", methods=["POST"])
+@local_access_required
+def backup_library():
+    from backend.backup import create_backup
+    body = request.get_json(silent=True) or {}
+    dest = (body.get("dest") or "").strip()
+    if not dest:
+        from backend.config import DATA_DIR
+        dest = str(DATA_DIR / "backups" / f"library-{__import__('time').strftime('%Y%m%d-%H%M%S')}.zip")
+    try:
+        result = create_backup(dest)
+        return jsonify(ok("内容库备份完成", result))
+    except CollectError as e:
+        return jsonify(fail(e)), 413 if e.code == ErrorCode.QUOTA_EXCEEDED else 400
+
+
+@library_bp.route("/restore/validate", methods=["POST"])
+@local_access_required
+def validate_library_backup():
+    from backend.backup import validate_backup
+    body = request.get_json(silent=True) or {}
+    path = (body.get("path") or "").strip()
+    try:
+        return jsonify(ok("备份校验通过", validate_backup(path)))
+    except CollectError as e:
+        return jsonify(fail(e)), 400
+
+
+@library_bp.route("/restore", methods=["POST"])
+@local_access_required
+def restore_library_backup():
+    from backend.backup import restore_backup
+    body = request.get_json(silent=True) or {}
+    path = (body.get("path") or "").strip()
+    mode = (body.get("mode") or "merge").strip()
+    if body.get("confirm") is not True:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "restore requires confirm=true"))), 400
+    try:
+        return jsonify(ok("内容库恢复完成（凭证未恢复，请重新认证）", restore_backup(path, mode)))
+    except CollectError as e:
+        return jsonify(fail(e)), 400
 
 
 @library_bp.route("/entries/<entry_id>/preview", methods=["GET"])
@@ -155,6 +217,56 @@ def open_folder(entry_id):
         return jsonify(ok("已打开目录", {"dir": str(entry_dir)}))
     except OSError as e:
         return jsonify(fail(CollectError(ErrorCode.INTERNAL, str(e)))), 200
+
+
+@library_bp.route("/entries/batch-download", methods=["POST"])
+@local_access_required
+def batch_download_entries():
+    """将多个内容库条目打包为单个 ZIP；仅包含 output 条目，不含 data/state。"""
+    import io
+    import zipfile
+    body = request.get_json(silent=True) or {}
+    entry_ids = body.get("entry_ids") or []
+    if not isinstance(entry_ids, list) or not entry_ids or len(entry_ids) > 50:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "entry_ids must contain 1-50 ids"))), 400
+    entries = []
+    for eid in entry_ids:
+        entry_dir = library.find_entry(str(eid))
+        if not entry_dir:
+            return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, f"entry not found: {eid}"))), 404
+        entries.append((str(eid), entry_dir))
+    buf = io.BytesIO()
+    total_files = 0
+    total_bytes = 0
+    def add_entry_to_zip(z, eid, entry_dir):
+        meta = state_store.read_json(entry_dir / "metadata.json") or {}
+        replacements = {}
+        for item in meta.get("files", []):
+            if str(item.get("path", "")).startswith("media/") and item.get("source_url"):
+                replacements[item["source_url"]] = "media/" + Path(item["path"]).name
+        for fp in sorted(entry_dir.rglob("*")):
+            if not fp.is_file():
+                continue
+            rel = str(fp.relative_to(entry_dir)).replace("\\", "/")
+            data = fp.read_bytes()
+            if rel == "content.md" and replacements:
+                text = data.decode("utf-8", errors="replace")
+                for remote, local in replacements.items():
+                    text = text.replace(remote, local)
+                data = text.encode("utf-8")
+            yield rel, data
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for eid, entry_dir in entries:
+            for rel, data in add_entry_to_zip(z, eid, entry_dir):
+                total_files += 1
+                total_bytes += len(data)
+                if total_files > 1000 or total_bytes > 512 * 1024 * 1024:
+                    return jsonify(fail(CollectError(ErrorCode.QUOTA_EXCEEDED, "批量导出超过文件或大小上限"))), 413
+                z.writestr(str(Path(eid) / rel), data)
+    from flask import Response
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": "attachment; filename*=UTF-8''library-export.zip"})
 
 
 @library_bp.route("/entries/<entry_id>/download", methods=["GET"])
