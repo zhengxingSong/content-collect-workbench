@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from backend.core import state_store
@@ -38,6 +40,12 @@ ACTIVE = {QUEUED, RUNNING, WAITING_AUTH, CANCEL_REQUESTED}
 
 SUGGESTED_POLL_INTERVAL = 2.0
 
+# 单进程资源边界：避免 Agent/用户连续提交任务时无限创建线程。
+# 可通过环境变量调整；max_workers=3 时最多同时执行 3 个 runner，
+# 其余任务最多排队 20 个，超过即返回 QUEUE_FULL。
+MAX_WORKERS = max(1, int(os.environ.get("WMT_TASK_MAX_WORKERS", "3")))
+MAX_QUEUE = max(0, int(os.environ.get("WMT_TASK_MAX_QUEUE", "20")))
+
 
 def _canonical(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -45,6 +53,16 @@ def _canonical(obj) -> str:
 
 class TaskCancelled(Exception):
     pass
+
+
+class TaskQueueFull(CollectError):
+    """有界任务队列已满，调用方应提示稍后重试。"""
+
+    def __init__(self, limit: int):
+        super().__init__(ErrorCode.QUOTA_EXCEEDED,
+                         f"任务队列已满（最多 {limit} 个活动任务），请稍后重试",
+                         retryable=True,
+                         detail={"queue_limit": limit})
 
 
 class TaskContext:
@@ -109,6 +127,8 @@ class TaskManager:
         self._tasks: dict[str, dict] = {}
         self._by_key: dict[str, str] = {}
         self._loaded = False
+        self._executor = ThreadPoolExecutor(max_workers=MAX_WORKERS,
+                                             thread_name_prefix="collect-task")
 
     # ── 持久化 ────────────────────────────────────────────
     def _persist(self, record: dict) -> None:
@@ -154,6 +174,9 @@ class TaskManager:
                 existing = self._tasks.get(existing_id)
                 if existing and existing["status"] in ACTIVE:
                     return existing, False
+            active_count = sum(1 for task in self._tasks.values() if task.get("status") in ACTIVE)
+            if active_count >= MAX_WORKERS + MAX_QUEUE:
+                raise TaskQueueFull(MAX_QUEUE)
             now = time.time()
             record = {
                 "task_id": f"t_{uuid.uuid4().hex[:12]}",
@@ -178,13 +201,14 @@ class TaskManager:
             self._by_key[key] = record["task_id"]
             self._persist(record)
 
-        thread = threading.Thread(
-            target=self._run, args=(record, runner), name=f"task-{record['task_id']}", daemon=True
-        )
-        thread.start()
+        self._executor.submit(self._run, record, runner)
         return record, True
 
     def _run(self, record: dict, runner) -> None:
+        # 线程池中的排队任务可能在真正启动前已被取消，直接落终态，不调用 runner。
+        if record.get("cancel_requested"):
+            self._set_status(record, CANCELLED)
+            return
         ctx = TaskContext(self, record)
         self._set_status(record, RUNNING)
         try:
@@ -271,6 +295,27 @@ class TaskManager:
                 rec["updated_at"] = time.time()
                 self._persist(rec)
             return rec
+
+    def retry_failed(self, task_id: str, runner) -> tuple[dict | None, bool, int]:
+        """仅重试指定任务失败条目，返回 (新任务, 是否创建, 失败条目数)。"""
+        with self._lock:
+            original = self._tasks.get(task_id)
+            if not original:
+                return None, False, 0
+            failed = [i.get("key") for i in original.get("items", [])
+                      if i.get("status") == "failed" and i.get("key")]
+            if not failed:
+                return original, False, 0
+            params = dict(original.get("params") or {})
+            if isinstance(params.get("urls"), list):
+                failed_set = set(failed)
+                params["urls"] = [u for u in params["urls"] if u in failed_set]
+            params["retry_of"] = task_id
+        rec, created = self.create(original["platform"], original["kind"], params, runner)
+        if created:
+            rec["retry_of"] = task_id
+            self._touch(rec)
+        return rec, created, len(failed)
 
 
 task_manager = TaskManager()

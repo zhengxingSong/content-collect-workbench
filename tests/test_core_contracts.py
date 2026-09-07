@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+import threading
 
 import pytest
 
@@ -593,3 +594,51 @@ def test_canonical_platform_id():
     assert canonical_platform_id("mp") == "mp"
     assert canonical_platform_id("channels") == "channels"
     assert canonical_platform_id("unknown") == "unknown"
+
+
+def test_task_queue_cancel_before_runner(state_dir):
+    """排队任务在 runner 启动前取消时，不应执行 runner。"""
+    from backend.core.task_manager import TaskManager
+    started = []
+    import backend.core.task_manager as mod
+    old_workers, old_queue = mod.MAX_WORKERS, mod.MAX_QUEUE
+    try:
+        mod.MAX_WORKERS = 1
+        mod.MAX_QUEUE = 2
+        tm = TaskManager()
+        gate = threading.Event()
+        def blocker(ctx): gate.wait(2)
+        first, _ = tm.create("mp", "block", {"n": 1}, blocker)
+        second, _ = tm.create("mp", "collect", {"n": 2}, lambda ctx: started.append(True))
+        tm.request_cancel(second["task_id"])
+        gate.set()
+        for _ in range(100):
+            rec = tm.get(second["task_id"])
+            if rec["status"] in ("cancelled", "succeeded", "failed"):
+                break
+            time.sleep(0.02)
+        assert rec["status"] == "cancelled"
+        assert started == []
+    finally:
+        mod.MAX_WORKERS, mod.MAX_QUEUE = old_workers, old_queue
+
+
+def test_retry_failed_only_uses_failed_keys(state_dir):
+    """重试入口只携带失败条目 URL。"""
+    from backend.core.task_manager import TaskManager
+    captured = []
+    tm = TaskManager()
+    def runner(ctx):
+        captured.extend(ctx.params.get("urls", []))
+        ctx.report(total=len(captured))
+        for u in captured: ctx.item(u, "succeeded")
+    original, _ = tm.create("mp", "collect", {"urls": ["ok", "bad", "skip"]},
+                            lambda ctx: (ctx.report(total=3), ctx.item("ok", "succeeded"),
+                                         ctx.item("bad", "failed", "x"), ctx.item("skip", "skipped", "exists")))
+    for _ in range(100):
+        original = tm.get(original["task_id"])
+        if original["status"] not in ("queued", "running"): break
+        time.sleep(.02)
+    rec, created, count = tm.retry_failed(original["task_id"], runner)
+    assert created and count == 1
+    assert rec["params"]["urls"] == ["bad"]

@@ -113,6 +113,10 @@ def tool_collect_task_cancel(args: dict) -> list[dict]:
     return _text(backend_client.call(f"/api/collect/tasks/{args['task_id']}/cancel", "POST", {}))
 
 
+def tool_collect_task_retry_failed(args: dict) -> list[dict]:
+    return _text(backend_client.call(f"/api/collect/tasks/{args['task_id']}/retry-failed", "POST", {}))
+
+
 def tool_mp_download_single(args: dict) -> list[dict]:
     """旧归档路径（data/articles_full，保留排版）。注意：提交成功≠采集成功。"""
     return _text(backend_client.call("/api/articles/download-url", "POST",
@@ -202,6 +206,8 @@ TOOLS = [
      {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"], "additionalProperties": False}, tool_collect_task_status),
     ("collect_task_cancel", "请求取消任务（协作式，不保证瞬时停止）",
      {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"], "additionalProperties": False}, tool_collect_task_cancel),
+    ("collect_task_retry_failed", "仅重试统一采集任务失败条目，不重复处理成功/已存在条目",
+     {"type": "object", "properties": {"task_id": {"type": "string"}}, "required": ["task_id"], "additionalProperties": False}, tool_collect_task_retry_failed),
     ("mp_download_single", "公众号文章离线归档（保留原排版，产物在 data/articles_full）。提交成功不等于采集成功",
      {"type": "object", "properties": {"urls": {"type": "array", "items": {"type": "string"}}},
       "required": ["urls"], "additionalProperties": False}, tool_mp_download_single),

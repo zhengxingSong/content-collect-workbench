@@ -70,7 +70,7 @@ def test_cli_json_output():
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     data = json.loads(result.stdout)
-    assert data["root"].startswith("/"), "root must be absolute"
+    assert Path(data["root"]).is_absolute(), "root must be absolute"
     assert len(data["tracked_files"]) > 100, f"expected >100 tracked files, got {len(data['tracked_files'])}"
     groups = data["groups"]
     assert "backend/douyin.py" in groups["backend"], "backend/douyin.py missing from backend group"

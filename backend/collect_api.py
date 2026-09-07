@@ -90,8 +90,11 @@ def collect_mp():
     if not isinstance(urls, list) or not urls:
         return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "urls must be a non-empty list"))), 400
 
-    record, created = task_manager.create("mp", "collect", {"urls": urls}, run_mp_collect,
-                                          idempotency_key=body.get("idempotency_key"))
+    try:
+        record, created = task_manager.create("mp", "collect", {"urls": urls}, run_mp_collect,
+                                              idempotency_key=body.get("idempotency_key"))
+    except CollectError as e:
+        return jsonify(fail(e)), 429 if e.code == ErrorCode.QUOTA_EXCEEDED else 400
     summary = "任务已创建" if created else "存在进行中的相同任务，已复用"
     return jsonify(ok(summary, {
         "task_id": record["task_id"],
@@ -126,3 +129,25 @@ def cancel_task(task_id):
     if not rec:
         return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, "task not found"))), 404
     return jsonify(ok("取消请求已受理（协作式取消）", {"task": rec}))
+
+
+@collect_bp.route("/tasks/<task_id>/retry-failed", methods=["POST"])
+@local_access_required
+def retry_failed_task(task_id):
+    """仅重试原任务失败条目，不重复处理成功/跳过项。"""
+    from backend.collectors.mp import run_mp_collect
+    original = task_manager.get(task_id)
+    if not original:
+        return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, "task not found"))), 404
+    if original.get("platform") != "mp" or original.get("kind") != "collect":
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "当前仅支持重试 mp collect 任务"))), 400
+    try:
+        rec, created, count = task_manager.retry_failed(task_id, run_mp_collect)
+    except CollectError as e:
+        return jsonify(fail(e)), 429 if e.code == ErrorCode.QUOTA_EXCEEDED else 400
+    if not count:
+        return jsonify(fail(CollectError(ErrorCode.INVALID_INPUT, "原任务没有可重试的失败条目"))), 400
+    return jsonify(ok("失败条目重试任务已创建" if created else "失败条目重试任务已复用", {
+        "task_id": rec["task_id"], "status": rec["status"], "created": created,
+        "retry_of": task_id, "retry_count": count,
+    }))
