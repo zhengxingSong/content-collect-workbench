@@ -373,5 +373,6 @@ const API = {
     // ── 聚合状态 API（仪表盘） ────────────────────────────
     statusApi: {
         get()                   { return API.get('/api/status', { showError: false }); },
+        environment()           { return API.get('/api/environment', { showError: false }); },
     },
 };

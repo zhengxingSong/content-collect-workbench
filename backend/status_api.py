@@ -31,6 +31,16 @@ def _probe_mcp(port: int) -> dict:
         return {"ok": False, "error": str(e)[:120], "port": port}
 
 
+@status_bp.route("/environment", methods=["GET"])
+@local_access_required
+def get_environment():
+    """返回启动/运行环境检查结果及可行动提示。"""
+    from backend.config import get_settings
+    from backend.core.environment import check_environment
+    settings = get_settings()
+    return jsonify(check_environment(int(settings.get("backend_port") or 5200), int(settings.get("mcp_port") or 3333), expect_running=True))
+
+
 @status_bp.route("/status", methods=["GET"])
 @local_access_required
 def get_status():

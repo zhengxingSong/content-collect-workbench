@@ -60,3 +60,11 @@
 - [x] 离线导出：单条下载保留；新增 1-50 条批量 ZIP，限 1000 文件/512MB，Markdown 中已落盘媒体链接改为 `media/` 相对路径。
 - [x] 内容库备份/校验/恢复：只备份 `output/`，不含凭证、服务令牌、代理证书；ZIP manifest+sha256 校验；恢复需 Web `confirm=true`，默认 merge，并从 output 重建去重索引。
 - [x] P2 契约测试：搜索/分页、完整性损坏检测、备份校验/恢复、凭证排除；核心测试 43 项通过。
+
+## ✅ P3（当前迭代完成）
+
+- [x] `/api/environment` 启动环境检查：Backend/MCP 端口、data/state/output 写权限、FFmpeg、磁盘空间；返回 `ready/degraded/blocked` 与逐项可行动 message。
+- [x] 仪表盘新增“运行环境”状态卡；Web API `API.statusApi.environment()` 接入。
+- [x] MCP 新增只读 `environment_check` 工具，阻塞环境返回 `ENV_NOT_READY` 与 blocking_checks。
+- [x] MCP HTTP/stdio 协议兼容测试：initialize、版本不匹配提示、tools/list、tools/call、未知方法与 notification。
+- [x] 全量 TDD 回归：148 passed。

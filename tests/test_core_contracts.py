@@ -699,3 +699,20 @@ def test_library_api_page_size_alone_enables_paging(state_dir, library_dir):
     from backend import library
     library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/page-size"))
     assert isinstance(library.list_entries("mp", page=1, page_size=1), dict)
+
+
+def test_environment_check_returns_actionable_checks(monkeypatch):
+    from backend.core.environment import check_environment
+    result = check_environment(5200, 3333)
+    assert result["status"] in {"ready", "degraded", "blocked"}
+    assert isinstance(result["checks"], dict)
+    assert "backend_port" in result["checks"]
+    assert "mcp_port" in result["checks"]
+    assert all("ok" in value and "message" in value for value in result["checks"].values())
+
+
+def test_environment_running_mode_accepts_listening_ports():
+    from backend.core.environment import check_environment
+    result = check_environment(1, 1, expect_running=True)
+    assert result["status"] in {"ready", "degraded", "blocked"}
+    assert "message" in result["checks"]["backend_port"]

@@ -87,11 +87,11 @@ def test_stdio_initialize_and_tools_list():
     assert init["serverInfo"]["name"] == "wechat-mp-tools"
     tools = msgs[1]["result"]["tools"]
     names = {t["name"] for t in tools}
-    # 与 HTTP 版注册表完全一致（48 工具：含失败条目重试）
+    # 与 HTTP 版注册表完全一致（49 工具：含环境检查）
     assert {"mp_collect", "douyin_download_single", "bili_detect_url", "xhs_parse",
             "channels_fetch_video_profile", "transcode_start", "mp_start_auth",
-            "mp_search_biz", "mp_hot_articles", "collect_task_retry_failed"} <= names
-    assert len(tools) == 48
+            "mp_search_biz", "mp_hot_articles", "collect_task_retry_failed", "environment_check"} <= names
+    assert len(tools) == 49
 
 
 def test_stdio_unknown_method_and_notification():
@@ -107,3 +107,19 @@ def test_stdio_resources_list():
     msgs = _run_stdio([{"jsonrpc": "2.0", "id": 3, "method": "resources/list"}])
     uris = {r["uri"] for r in msgs[0]["result"]["resources"]}
     assert "mp-tools://status" in uris and "mp-tools://capabilities" in uris
+
+
+def test_stdio_protocol_mismatch_is_actionable():
+    msgs = _run_stdio([{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2024-11-05"}}])
+    result = msgs[0]["result"]
+    assert result["protocolVersion"] == "2025-03-26"
+    assert "协议版本不匹配" in result.get("instructions", "")
+
+
+def test_stdio_environment_check_tool_registered():
+    msgs = _run_stdio([{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                        "params": {"name": "environment_check", "arguments": {}}}])
+    assert msgs[0]["result"]["isError"] is False
+    payload = json.loads(msgs[0]["result"]["content"][0]["text"])
+    assert payload["data"]["status"] in {"ready", "degraded", "blocked"}

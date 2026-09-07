@@ -19,6 +19,12 @@ const DashboardPage = {
                     <div id="dash-services-body" class="dash-card-body"><p class="dash-muted">加载中…</p></div>
                 </section>
 
+                <!-- 环境诊断 -->
+                <section class="dash-card" id="dash-environment">
+                    <h3 class="dash-card-title">运行环境</h3>
+                    <div id="dash-environment-body" class="dash-card-body"><p class="dash-muted">加载中…</p></div>
+                </section>
+
                 <!-- 账号池 -->
                 <section class="dash-card" id="dash-accounts">
                     <h3 class="dash-card-title">采集账号池</h3>
@@ -60,13 +66,27 @@ const DashboardPage = {
     },
 
     async refreshAll() {
-        await Promise.all([this.refreshServices(), this.refreshAccounts(),
+        await Promise.all([this.refreshServices(), this.refreshEnvironment(), this.refreshAccounts(),
                            this.refreshAuth(), this.refreshTasks(), this.refreshRecent()]);
     },
 
     _set(id, html) {
         const el = document.getElementById(id);
         if (el) el.innerHTML = html;
+    },
+
+    async refreshEnvironment() {
+        try {
+            const r = await API.statusApi.environment();
+            const d = r || {};
+            const labels = { backend_port: 'Backend 端口', mcp_port: 'MCP 端口', data_writable: 'data 目录', state_writable: 'state 目录', output_writable: 'output 目录', ffmpeg: 'FFmpeg', disk: '磁盘空间' };
+            const rows = Object.entries(d.checks || {}).map(([k, v]) => `<div class="dash-row"><span class="dash-dot ${v.ok ? 'ok' : (k === 'ffmpeg' ? 'warn' : 'bad')}"></span>${labels[k] || k}<span class="dash-extra">${this._esc(v.message)}</span></div>`);
+            this._set('dash-environment-body', rows.join('') || '<p class="dash-muted">无诊断数据</p>');
+        } catch (e) { this._set('dash-environment-body', '<p class="dash-muted">环境检查失败</p>'); }
+    },
+
+    _esc(s) {
+        return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     },
 
     async refreshServices() {
