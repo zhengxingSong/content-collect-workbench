@@ -364,6 +364,13 @@ const API = {
         },
     },
 
+    // ── 搜狗公开索引（公众号近期文章，免登录） ────────────
+    sogou: {
+        search(accountName, limit) {
+            return API.post('/api/sogou/search', { account_name: accountName, limit: limit || 10 });
+        },
+    },
+
     // ── RSS 订阅管理 API ──────────────────────────────────
     rssApi: {
         subscriptions()         { return API.get('/api/rss/subscriptions', { showError: false }); },

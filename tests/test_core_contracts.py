@@ -10,6 +10,7 @@ import base64
 import json
 import time
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -845,3 +846,98 @@ def test_platform_health_tracks_task_outcomes(state_dir):
     assert hd["sample"] == "insufficient"
     # 未记录平台
     assert get_platform_health("xhs")["total"] == 0
+
+
+# ── 搜狗公开索引通道（sogou_index） ───────────────────────
+
+_SOGOU_FIXTURES = Path("tests/fixtures/sogou")
+
+
+def test_sogou_parse_article_cards_from_fixture():
+    from backend.sogou_index import parse_article_cards
+    html = (_SOGOU_FIXTURES / "article_search.html").read_text(encoding="utf-8")
+    cards = parse_article_cards(html)
+    assert len(cards) == 10
+    first = cards[0]
+    # 标题剥离 <em> 高亮标记
+    assert "<em>" not in first["title"] and "腾讯技术工程" in first["title"]
+    assert first["link"].startswith("/link?url=")
+    assert first["account"] == "程序员遇见GitHub"
+    assert first["publish_ts"] == 1555776042
+    # 大多数卡有摘要（末尾卡可能没有——fixture 实测）
+    assert sum(1 for c in cards if c.get("summary")) >= 8
+
+
+def test_sogou_publisher_exact_filter():
+    from backend.sogou_index import parse_article_cards, filter_by_publisher
+    html = (_SOGOU_FIXTURES / "article_search.html").read_text(encoding="utf-8")
+    cards = parse_article_cards(html)
+    # 首卡标题含"腾讯技术工程"但发布者是别的号——标题命中不算数
+    kept = filter_by_publisher(cards, "程序员遇见GitHub")
+    assert all(c["account"] == "程序员遇见GitHub" for c in kept)
+    kept2 = filter_by_publisher(cards, "腾讯技术工程")
+    assert all(c["account"] == "腾讯技术工程" for c in kept2)
+
+
+def test_sogou_link_resolution_and_anti_detection():
+    from backend.sogou_index import extract_real_url_from_link_page, is_anti_bot_page
+    link_html = (_SOGOU_FIXTURES / "link_page.html").read_text(encoding="utf-8")
+    real = extract_real_url_from_link_page(link_html)
+    assert real and real.startswith("https://mp.weixin.qq.com/s?")
+    assert "anti.min.css" not in real
+    # 反爬页识别
+    anti = '<link rel="stylesheet" href="static/css/anti.min.css?v=1"/>'
+    assert is_anti_bot_page(anti)
+    assert extract_real_url_from_link_page(anti) is None
+
+
+def test_sogou_article_identity_and_publisher_recheck():
+    from backend.sogou_index import extract_article_identity
+    page = (_SOGOU_FIXTURES / "article_page.html").read_text(encoding="utf-8")
+    ident = extract_article_identity(page)
+    assert ident["sn"] == "b4bef4da221c30e22e9f143ea9438406"
+    assert ident["biz"] == "Mzg4NDA5MDcxMg=="
+    assert ident["account_name"] == "程序员遇见GitHub"
+
+
+def test_signed_url_stable_identity_via_page_sn():
+    """签名 URL（/s?src=11&timestamp=..&signature=..）无稳定 ID，
+    采集器必须能从页面提取 sn 作为去重身份。"""
+    from backend.collectors.mp import _stable_item_id
+    page = (_SOGOU_FIXTURES / "article_page.html").read_text(encoding="utf-8")
+    signed = "https://mp.weixin.qq.com/s?src=11&timestamp=1788905005&ver=6955&signature=XYZ"
+    assert _stable_item_id(signed, page) == "mp:b4bef4da221c30e22e9f143ea9438406"
+    # 短链仍走原逻辑
+    short = "https://mp.weixin.qq.com/s/abc123def"
+    assert _stable_item_id(short, page) == "mp:abc123def"
+
+
+def test_sogou_search_cache_ttl(state_dir, monkeypatch):
+    """搜索结果 6h 缓存：TTL 内不重复请求，过期后重新拉取。"""
+    import backend.sogou_index as si
+
+    calls = {"n": 0}
+    search_html = (_SOGOU_FIXTURES / "article_search.html").read_text(encoding="utf-8")
+    link_html = (_SOGOU_FIXTURES / "link_page.html").read_text(encoding="utf-8")
+
+    def fake_get(session, url, referer=None):
+        calls["n"] += 1
+        if "/weixin?" in url:
+            return search_html
+        if "/link?" in url:
+            return link_html
+        return ""
+
+    monkeypatch.setattr(si, "_http_get", fake_get)
+    now = {"t": 1000.0}
+    monkeypatch.setattr(si.time, "time", lambda: now["t"])
+
+    r1 = si.search_articles("程序员遇见GitHub", limit=2, use_cache=True)
+    n_after_first = calls["n"]
+    r2 = si.search_articles("程序员遇见GitHub", limit=2, use_cache=True)
+    assert calls["n"] == n_after_first  # TTL 内命中缓存
+    assert r1["items"] == r2["items"]
+    now["t"] += 7 * 3600  # 过期
+    r3 = si.search_articles("程序员遇见GitHub", limit=2, use_cache=True)
+    assert calls["n"] > n_after_first  # 重新拉取
+    assert r3["resolved"] >= 1 and all(it["url"].startswith("https://mp.weixin.qq.com/s?") for it in r3["items"])

@@ -90,8 +90,9 @@ def test_stdio_initialize_and_tools_list():
     # 与 HTTP 版注册表完全一致（50 工具：含环境检查）
     assert {"mp_collect", "douyin_download_single", "bili_detect_url", "xhs_parse",
             "channels_fetch_video_profile", "transcode_start", "mp_start_auth",
-            "mp_search_biz", "mp_hot_articles", "collect_task_retry_failed", "environment_check"} <= names
-    assert len(tools) == 50
+            "mp_search_biz", "mp_hot_articles", "collect_task_retry_failed", "environment_check",
+            "mp_sogou_articles"} <= names
+    assert len(tools) == 51
 
 
 def test_stdio_unknown_method_and_notification():

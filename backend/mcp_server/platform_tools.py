@@ -147,6 +147,24 @@ PLATFORM_TOOLS += [
 ]
 
 
+# ── 搜狗公开索引（免登录，2026-07 后台列表接口关闭后的近期文章通路） ──
+
+def mp_sogou_articles(args):
+    payload = {"account_name": args.get("account_name", ""), "limit": args.get("limit", 10)}
+    return _text(_wrap(backend_client.call("/api/sogou/search", "POST", payload, timeout=90),
+                       "搜狗索引近期文章"))
+
+
+PLATFORM_TOOLS += [
+    ("mp_sogou_articles", "按公众号名搜索其近期文章（搜狗公开索引，免登录）。"
+     "仅近期文章非全量历史；返回真实文章 URL（带签名有时效），请立即交给 mp_collect 采集",
+     {"type": "object",
+      "properties": {"account_name": {"type": "string", "description": "公众号显示名（精确匹配过滤）"},
+                     "limit": {"type": "integer", "description": "返回条数 1-20，默认 10"}},
+      "required": ["account_name"], "additionalProperties": False}, mp_sogou_articles),
+]
+
+
 # ── M7：视频转码 ──────────────────────────────────────────
 
 def tc_check_ffmpeg(args): return _text(_wrap(backend_client.call("/api/transcode/check-ffmpeg"), "FFmpeg 环境检查"))

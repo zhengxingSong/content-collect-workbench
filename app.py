@@ -68,6 +68,7 @@ from backend.rss_api import rss_api_bp
 from backend.status_api import status_bp
 from backend.mp_admin_login import mp_admin_bp
 from backend.mp_hot import mp_hot_bp
+from backend.sogou_api import sogou_bp
 
 # ── Flask 应用 ────────────────────────────────────────────
 static_folder_path = resource_dir() / "frontend"
@@ -119,6 +120,7 @@ app.register_blueprint(rss_api_bp)
 app.register_blueprint(status_bp)
 app.register_blueprint(mp_admin_bp)
 app.register_blueprint(mp_hot_bp)
+app.register_blueprint(sogou_bp)
 
 
 # ── M0+ 契约层初始化：state/ 目录、服务令牌、任务恢复 ──────

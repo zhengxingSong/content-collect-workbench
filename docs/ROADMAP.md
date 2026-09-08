@@ -75,3 +75,11 @@
 - [x] 磁盘预算：任务执行前检查 output 所在盘可用空间（默认 1GB，`WMT_TASK_MIN_FREE_GB` 可调/0 关闭），不足立即 `QUOTA_EXCEEDED` 失败，不启动 runner。
 - [x] 平台健康统计：`GET /api/health/platforms` + MCP `platform_health`；从真实任务终态聚合（滑动窗口 200 条），错误分类 user_input/auth/platform/internal，小样本标注 `insufficient` 不妄断故障。
 - [x] 契约测试 5 项新增（补采×2、磁盘预算、健康统计、样本阈值语义）；全量 154 passed。
+
+## ✅ 搜狗公开索引通道（当前迭代完成）
+
+- [x] 背景：2026-07-30 微信关闭第三方会话的跨号文章列表能力（appmsg/appmsgpublish 一律 200013，生态多家项目确认）。搜狗公开索引成为"某公众号近期文章"的现实来源。
+- [x] `backend/sogou_index.py`：文章卡片解析（fixture 驱动 TDD）、发布者精确过滤（防同名号串档）、/link 跳转还原（url+= 拼接 + 显式 &amp; 替换 + 反爬页识别）、文章页 sn/biz/js_name 身份提取、6h 搜索缓存、会话化请求（CookieJar 保持）。
+- [x] 稳定去重身份：签名 URL（/s?src=11&timestamp=..&signature=..）无稳定 ID，采集器从页面提取 sn 作为 platform_item_id——同一文章重复解析不重复入库（Docker 实测 signature 已变仍 skipped）。
+- [x] 端点 `POST /api/sogou/search`、MCP `mp_sogou_articles`（51 工具）、Web 采集页"公众号近期文章"卡片。
+- [x] 边界声明：仅近期文章非全量历史；签名 URL 有时效需尽快采集；搜狗反爬敏感时返回可行动错误（429 验证码提示）。

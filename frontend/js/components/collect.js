@@ -56,6 +56,19 @@ const CollectPage = {
                     </div>
                 </section>
 
+                <section class="dash-card" id="collect-sogou-card">
+                    <h3 class="dash-card-title">公众号近期文章 <span class="dash-muted" style="font-weight:400;font-size:.75rem">搜狗公开索引 · 免登录 · 输入公众号名</span></h3>
+                    <div class="dash-card-body">
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            <input id="sogou-name" class="input" style="flex:1;min-width:160px"
+                                placeholder="公众号显示名（精确匹配，如「腾讯技术工程」）"
+                                onkeydown="if(event.key==='Enter')CollectPage.querySogou()" />
+                            <button class="btn btn-primary" onclick="CollectPage.querySogou()">搜索</button>
+                        </div>
+                        <div id="sogou-results" style="margin-top:12px"><p class="dash-muted">返回该号近期文章（非全量历史）；签名链接有时效，请尽快采集。</p></div>
+                    </div>
+                </section>
+
                 <section class="dash-card">
                     <h3 class="dash-card-title">平台高级功能</h3>
                     <div class="dash-card-body">
@@ -254,6 +267,35 @@ const CollectPage = {
             this.refreshSubmitted();
         } else {
             Toast.error(r.error?.message || '提交失败');
+        }
+    },
+
+    // ── 搜狗公开索引（公众号近期文章） ────────────────────
+    async querySogou() {
+        const box = document.getElementById('sogou-results');
+        const name = (document.getElementById('sogou-name')?.value || '').trim();
+        if (!name) { Toast.warning('请输入公众号显示名'); return; }
+        box.innerHTML = '<p class="dash-muted">搜索中…（含链接还原，约 5-15 秒）</p>';
+        try {
+            const r = await API.sogou.search(name, 10);
+            const items = r.items || [];
+            if (!items.length) {
+                box.innerHTML = '<p class="dash-muted">索引中暂无该号的近期文章（发布者需精确匹配；可尝试完整显示名）。</p>';
+                return;
+            }
+            box.innerHTML = `
+                <p class="dash-muted">${items.length} 条已按发布者精确过滤 · ${r.resolved} 条已还原真实链接</p>
+                ${items.map(it => `
+                <div class="dash-row" style="align-items:flex-start">
+                    <span class="dash-dot ok"></span>
+                    <div style="flex:1">
+                        <div>${CollectPage._esc(it.title)}</div>
+                        <div class="dash-muted">${CollectPage._esc(it.account)}${it.publish_ts ? ' · ' + new Date(it.publish_ts * 1000).toLocaleDateString('zh-CN') : ''}</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="CollectPage.collectHot('${CollectPage._escAttr(it.url)}')">采集原文</button>
+                </div>`).join('')}`;
+        } catch (e) {
+            box.innerHTML = `<p class="dash-muted">查询失败：${CollectPage._esc(e.message || e)}（搜狗反爬较敏感，可稍后重试）</p>`;
         }
     },
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import time
@@ -138,8 +139,10 @@ def _run_urls(ctx, urls, tmp_media: Path,
                 except Exception:
                     failed_media.append(murl)
 
+            stable_id = _stable_item_id(url, raw_html)
+
             entry = library.commit_entry("mp", {
-                "platform_item_id": platform_item_id(url),
+                "platform_item_id": stable_id,
                 "source_url": url,
                 "content_type": "article",
                 "title": title,
@@ -162,6 +165,16 @@ def _run_urls(ctx, urls, tmp_media: Path,
             raise
         except Exception as e:
             ctx.item(url, "failed", str(e)[:200])
+
+
+def _stable_item_id(url: str, raw_html: str) -> str | None:
+    """稳定内容身份：短链用 token；签名查询形态（搜狗还原链接等）URL 里没有
+    稳定 ID，从页面内嵌的 sn= 提取——保证同一文章重复解析不重复入库。"""
+    pid = platform_item_id(url)
+    if pid:
+        return pid
+    m = re.search(r"sn=([a-f0-9]{32})", raw_html)
+    return f"mp:{m.group(1)}" if m else None
 
 
 def _append_download_history(url: str, title: str, entry: dict, content_md: str) -> None:
