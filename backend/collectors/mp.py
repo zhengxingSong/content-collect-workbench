@@ -86,21 +86,26 @@ def _run_urls(ctx, urls, tmp_media: Path,
         ctx.check_cancel()
         url = (url or "").strip()
         if not url.startswith("http"):
-            ctx.item(url, "failed", "invalid url")
+            ctx.item(url, "failed", "不是有效的链接（需以 http/https 开头）")
             continue
 
         try:
-            raw_html = _fetch_full_page(url)
-            if not raw_html:
-                ctx.item(url, "failed", "empty page")
-                continue
-
-            # 风控/错误页守卫：环境异常/参数错误等页面绝不能当成功入库
-            blocked = _detect_blocked_page(raw_html)
+            # 微信对同一短链会间歇性返回挑战页（UAT 2026-09-08 实测：连续抓取
+            # 交替出现正常页/空壳页）。命中守卫先重试再判失败，避免随机误杀。
+            raw_html = ""
+            blocked = None
+            for attempt in range(3):
+                raw_html = _fetch_full_page(url)
+                if raw_html and not _detect_blocked_page(raw_html):
+                    blocked = None
+                    break
+                blocked = _detect_blocked_page(raw_html) or "empty page"
+                if attempt < 2:
+                    time.sleep(2.5)
             if blocked:
                 ctx.item(url, "failed",
-                         f"微信拦截页（{blocked}）：服务端抓取被环境校验拦下。"
-                         f"可在浏览器打开原文后复制短链（mp.weixin.qq.com/s/…）重试")
+                         f"微信拦截页（{blocked}）：服务端抓取被环境校验拦下（已重试 2 次）。"
+                         f"稍后在浏览器打开原文复制短链重试，或直接重试本条")
                 continue
 
             content_html = extract_article_content(raw_html)

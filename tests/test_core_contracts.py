@@ -297,9 +297,12 @@ def test_local_access_token_and_origin(state_dir):
                        base_url="http://127.0.0.1:5200/").status_code == 200
     # 恶意外域 Origin → 403
     assert client.post("/protected", headers={"Origin": "http://evil.example.com"}).status_code == 403
-    # 非本机 Host → 403（防 DNS rebinding）
+    # 非本机 Host + 无令牌 → 403（防 DNS rebinding / 外网直扫）
+    assert client.post("/protected", base_url="http://evil.example.com/").status_code == 403
+    # 非本机 Host + 有效令牌 → 200（容器间调用契约：令牌即身份，DNS rebinding
+    # 攻击者拿不到 state/service.json 中的令牌；与 app.py 全局守卫同一规则）
     assert client.post("/protected", headers={"Authorization": f"Bearer {token}"},
-                       base_url="http://evil.example.com/").status_code == 403
+                       base_url="http://evil.example.com/").status_code == 200
 
 
 # ── MCP 协议（§7） ───────────────────────────────────────
@@ -716,3 +719,32 @@ def test_environment_running_mode_accepts_listening_ports():
     result = check_environment(1, 1, expect_running=True)
     assert result["status"] in {"ready", "degraded", "blocked"}
     assert "message" in result["checks"]["backend_port"]
+
+
+def test_container_calls_with_bearer_pass_blueprint_host_guard(state_dir):
+    """Docker 容器间调用（Host=服务名 + 有效 Bearer）必须通过蓝图守卫。
+
+    UAT 发现：全局守卫放行容器间调用，但 local_access_required 再次
+    _host_ok() 拒绝 Host=backend，导致 MCP 全部 POST 工具在 Docker 下 403。
+    """
+    from flask import Flask
+    from backend.core import state_store
+    from backend.security import local_access_required
+
+    app = Flask(__name__)
+    token = state_store.ensure_service_token(5200)["token"]
+
+    @app.post("/protected")
+    @local_access_required
+    def protected():
+        return {"ok": True}
+
+    client = app.test_client()
+    # Host 为容器服务名 + 有效令牌 → 放行
+    assert client.post("/protected", headers={"Authorization": f"Bearer {token}",
+                                               "Host": "backend:5200"}).status_code == 200
+    # Host 为服务名但无令牌 → 仍拒绝（防外网直扫）
+    assert client.post("/protected", headers={"Host": "backend:5200"}).status_code == 403
+    # 非本机 Host + 错误令牌 → 拒绝
+    assert client.post("/protected", headers={"Authorization": "Bearer wrong-token",
+                                               "Host": "backend:5200"}).status_code == 403

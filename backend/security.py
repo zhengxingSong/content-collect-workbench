@@ -52,15 +52,16 @@ def _origin_ok() -> bool:
 def local_access_required(fn):
     """Blueprint 路由装饰器：令牌或同源放行，其余 403。
 
-    GET/HEAD（只读）仅需 Host 校验：跨域读取被 CORS 白名单阻断、
-    DNS rebinding 被全局 Host 校验阻断，同源浏览器的 GET 不携带
-    Origin/Referer（no-referrer 策略），不应被误伤。
-    POST/PUT/DELETE（写操作）必须持令牌或同源 Origin（CSRF 防护）。
+    Host 规则：本机 Host 直接放行；非本机 Host（Docker 容器间调用，如
+    mcp→backend 的 Host=服务名）必须持有效服务令牌——与 app.py 全局守卫
+    保持同一规则，避免全局放行后被蓝图层再次拒绝（UAT 2026-09-08）。
+    GET/HEAD（只读）仅需 Host 校验；POST/PUT/DELETE（写操作）必须持令牌
+    或同源 Origin（CSRF 防护）。
     """
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        if not _host_ok():
+        if not _host_ok() and not _bearer_ok():
             return jsonify(envelope(False, "非法 Host", None,
                                     {"code": "SERVICE_UNAVAILABLE", "message": "invalid Host header",
                                      "retryable": False})), 403
