@@ -68,3 +68,10 @@
 - [x] MCP 新增只读 `environment_check` 工具，阻塞环境返回 `ENV_NOT_READY` 与 blocking_checks。
 - [x] MCP HTTP/stdio 协议兼容测试：initialize、版本不匹配提示、tools/list、tools/call、未知方法与 notification。
 - [x] 全量 TDD 回归：148 passed。
+
+## ✅ 采集韧性迭代（当前完成）
+
+- [x] 失败媒体定向补采：`POST /api/library/entries/{id}/retry-media`；只重下 failed_items 中的媒体，成功后更新 manifest/sha256/source_url、清空 failed_items、重算 collection_status；Web 完整性详情内一键补采；不新建条目。
+- [x] 磁盘预算：任务执行前检查 output 所在盘可用空间（默认 1GB，`WMT_TASK_MIN_FREE_GB` 可调/0 关闭），不足立即 `QUOTA_EXCEEDED` 失败，不启动 runner。
+- [x] 平台健康统计：`GET /api/health/platforms` + MCP `platform_health`；从真实任务终态聚合（滑动窗口 200 条），错误分类 user_input/auth/platform/internal，小样本标注 `insufficient` 不妄断故障。
+- [x] 契约测试 5 项新增（补采×2、磁盘预算、健康统计、样本阈值语义）；全量 154 passed。

@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -45,6 +46,7 @@ SUGGESTED_POLL_INTERVAL = 2.0
 # 其余任务最多排队 20 个，超过即返回 QUEUE_FULL。
 MAX_WORKERS = max(1, int(os.environ.get("WMT_TASK_MAX_WORKERS", "3")))
 MAX_QUEUE = max(0, int(os.environ.get("WMT_TASK_MAX_QUEUE", "20")))
+MIN_FREE_GB = max(0.0, float(os.environ.get("WMT_TASK_MIN_FREE_GB", "1")))
 
 
 def _canonical(obj) -> str:
@@ -212,6 +214,20 @@ class TaskManager:
         ctx = TaskContext(self, record)
         self._set_status(record, RUNNING)
         try:
+            # 执行前磁盘预算：空间不足立即失败，避免采集半程写坏产物
+            if MIN_FREE_GB:
+                try:
+                    from backend.config import OUTPUT_DIR
+                    usage = shutil.disk_usage(OUTPUT_DIR if OUTPUT_DIR.exists() else Path.cwd())
+                    free_gb = usage.free / (1024 ** 3)
+                    if free_gb < MIN_FREE_GB:
+                        raise CollectError(
+                            ErrorCode.QUOTA_EXCEEDED,
+                            f"磁盘可用空间不足（{free_gb:.1f} GB < 预算 {MIN_FREE_GB} GB），"
+                            f"任务未执行。请清理磁盘或调低 WMT_TASK_MIN_FREE_GB",
+                            retryable=True)
+                except OSError:
+                    pass  # 无法检查时放行，不阻塞采集
             runner(ctx)
         except TaskCancelled:
             self._set_status(record, CANCELLED)
@@ -256,6 +272,22 @@ class TaskManager:
                              detail={"all_skipped_existing": True, "skipped": n_skipped})
         else:
             self._set_status(record, SUCCEEDED)
+        self._record_health(record)
+
+    def _record_health(self, record: dict) -> None:
+        """把真实任务结果写入平台健康统计（P1-4）。统计失败不阻断任务。"""
+        try:
+            from backend.core.platform_health import record_task
+            items = record.get("items") or []
+            error = record.get("error")
+            if items:
+                for it in items:
+                    record_task(record["platform"], it.get("status", "failed"),
+                                error if it.get("status") == "failed" else None)
+            else:
+                record_task(record["platform"], "failed", error)
+        except Exception:  # noqa: BLE001 - 健康统计绝不影响任务本身
+            pass
 
     # ── 状态流转（内部） ──────────────────────────────────
     def _set_status(self, record: dict, status: str, detail: dict | None = None) -> None:

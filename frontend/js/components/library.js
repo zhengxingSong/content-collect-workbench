@@ -217,7 +217,17 @@ const LibraryPage = {
                     <p class="dash-muted">平台：${this._esc(entry.platform)} · 作者：${this._esc((entry.author || {}).name || '—')} · 采集：${this._esc(entry.collect_time || '—')}</p>
                     <table class="dash-table"><thead><tr><th>文件</th><th>校验</th><th>说明</th></tr></thead><tbody>${files || '<tr><td colspan="3">无文件清单</td></tr>'}</tbody></table>
                     ${warnings ? `<p><b>警告</b></p><ul>${warnings}</ul>` : ''}
+                    ${(integrity.failed_items || []).length ? `<button class="btn btn-primary btn-sm" id="lib-retry-media">补采失败的 ${integrity.failed_items.length} 个媒体</button>` : ''}
                 </div>`,
+                onOpen: () => {
+                    document.getElementById('lib-retry-media')?.addEventListener('click', async () => {
+                        try {
+                            const r = await API.library.retryMedia(entryId);
+                            if (r.success) { Toast.success(r.summary); Modal.close(); this.detail(entryId); }
+                            else Toast.error(r.error?.message || '补采失败');
+                        } catch (e) { Toast.error(e.message || '补采失败'); }
+                    });
+                },
             });
         } catch (e) {
             Toast.error(e.message || '读取完整性详情失败');

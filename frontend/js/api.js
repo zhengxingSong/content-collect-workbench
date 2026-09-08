@@ -334,6 +334,7 @@ const API = {
         export(entryIds, dest)  { return API.post('/api/library/export', { entry_ids: entryIds, dest }); },
         openFolder(entryId)     { return API.post(`/api/library/entries/${entryId}/open-folder`); },
         fileUrl(entryId, path)  { return `/api/library/entries/${entryId}/file?path=${encodeURIComponent(path)}`; },
+        retryMedia(entryId)     { return API.post(`/api/library/entries/${entryId}/retry-media`); },
         batchDownload(entryIds) { return API.post('/api/library/entries/batch-download', { entry_ids: entryIds }); },
         backup(dest)            { return API.post('/api/library/backup', { dest }); },
         validateRestore(path)   { return API.post('/api/library/restore/validate', { path }); },

@@ -748,3 +748,100 @@ def test_container_calls_with_bearer_pass_blueprint_host_guard(state_dir):
     # 非本机 Host + 错误令牌 → 拒绝
     assert client.post("/protected", headers={"Authorization": "Bearer wrong-token",
                                                "Host": "backend:5200"}).status_code == 403
+
+
+def test_retry_media_repairs_failed_items_only(state_dir, library_dir, monkeypatch):
+    """补采只重下失败媒体，成功后更新 manifest/failed_items/collection_status。"""
+    import base64
+    from backend import library
+    img_b64 = base64.b64encode(b"\x89PNG-fake-image-data").decode()
+    item = _mk_item("https://mp.weixin.qq.com/s/retry-media")
+    item["media_paths"] = [{"data_b64": img_b64, "name": "img_000_ok.png",
+                            "source_url": "https://mmbiz.qpic.cn/ok.png"}]
+    item["failed_items"] = [{"key": "https://mmbiz.qpic.cn/bad.png", "reason": "media download failed"}]
+    r = library.commit_entry("mp", item)
+    meta = library.get_entry(r["entry_id"])
+    assert meta["collection_status"] == "partial"
+    assert len(meta["failed_items"]) == 1
+
+    from backend.media_retry import retry_entry_media
+    result = retry_entry_media(r["entry_id"])  # 默认真实下载器；此处 URL 假地址会失败
+    assert result["retried"] == 1 and result["succeeded"] == 0
+
+    # 注入可用下载器：补采成功
+    def fake_download(url, path):
+        path.write_bytes(b"\x89PNG-repaired")
+        return True
+    result = retry_entry_media(r["entry_id"], downloader=fake_download)
+    assert result["succeeded"] == 1 and result["failed"] == 0
+
+    meta = library.get_entry(r["entry_id"])
+    assert meta["failed_items"] == []
+    assert meta["collection_status"] == "complete"
+    repaired = next(f for f in meta["files"] if f.get("source_url") == "https://mmbiz.qpic.cn/bad.png")
+    assert repaired["size"] == len(b"\x89PNG-repaired")
+    # 不新建条目：entry_id 不变
+    assert meta["id"] == r["entry_id"]
+
+
+def test_retry_media_nothing_to_retry(state_dir, library_dir):
+    from backend import library
+    from backend.media_retry import retry_entry_media
+    r = library.commit_entry("mp", _mk_item("https://mp.weixin.qq.com/s/no-media"))
+    result = retry_entry_media(r["entry_id"])
+    assert result["retried"] == 0 and result["succeeded"] == 0
+
+
+def test_task_fails_fast_when_disk_budget_exhausted(state_dir, monkeypatch):
+    """磁盘可用空间低于预算时任务立即失败，不启动 runner。"""
+    import shutil as _shutil
+    from backend.core import task_manager as tm_mod
+    from backend.core.task_manager import TaskManager, FAILED
+
+    started = []
+    real_usage = _shutil.disk_usage
+
+    def fake_usage(path):
+        class U:
+            free = 500 * 1024 * 1024  # 500MB < 1GB 预算
+            total = 100 * 1024 ** 3
+            used = 99 * 1024 ** 3
+        return U()
+
+    monkeypatch.setattr(tm_mod.shutil, "disk_usage", fake_usage)
+    tm = TaskManager()
+    rec, _ = tm.create("mp", "collect", {"urls": ["x"]},
+                       lambda ctx: started.append(True))
+    for _ in range(100):
+        rec = tm.get(rec["task_id"])
+        if rec["status"] not in ("queued", "running"):
+            break
+        time.sleep(0.02)
+    assert rec["status"] == FAILED
+    assert rec["error"]["code"] == "QUOTA_EXCEEDED"
+    assert started == []
+
+
+def test_platform_health_tracks_task_outcomes(state_dir):
+    """健康统计来自真实任务终态：分平台成功率、错误分类、小样本数据不足。"""
+    from backend.core.platform_health import record_task, get_platform_health
+    # 三次成功 + 一次平台故障（频控）+ 一次用户输入错误
+    for _ in range(3):
+        record_task("mp", "succeeded", None)
+    record_task("mp", "failed", {"code": "RATE_LIMITED", "message": "频控"})
+    record_task("mp", "failed", {"code": "INVALID_INPUT", "message": "坏链接"})
+    h = get_platform_health("mp")
+    assert h["total"] == 5 and h["succeeded"] == 3 and h["failed"] == 2
+    assert 0 < h["success_rate"] < 1
+    assert h["error_types"]["platform"] == 1 and h["error_types"]["user_input"] == 1
+    # 5 条 < MIN_SAMPLE(10) → insufficient；补足到 10 条后 sufficient
+    assert h["sample"] == "insufficient"
+    for _ in range(5):
+        record_task("mp", "succeeded", None)
+    assert get_platform_health("mp")["sample"] == "sufficient"
+    # 小样本：数据不足不妄下结论
+    record_task("douyin", "failed", {"code": "INTERNAL", "message": "x"})
+    hd = get_platform_health("douyin")
+    assert hd["sample"] == "insufficient"
+    # 未记录平台
+    assert get_platform_health("xhs")["total"] == 0

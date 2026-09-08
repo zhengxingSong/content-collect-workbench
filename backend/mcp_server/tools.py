@@ -92,6 +92,12 @@ def tool_environment_check(args: dict) -> list[dict]:
                       "detail": {"blocking_checks": result["blocking_checks"]}}})
 
 
+def tool_platform_health(args: dict) -> list[dict]:
+    from backend.core.platform_health import get_all_health
+    return _text({"success": True, "summary": "平台通路健康统计（来自真实任务结果）",
+                  "data": {"platforms": get_all_health()}, "error": None})
+
+
 def tool_platform_capabilities(args: dict) -> list[dict]:
     platform = (args.get("platform") or "").strip()
     if platform:
@@ -206,6 +212,7 @@ def _err(code: str, message: str, retryable: bool = False) -> dict:
 TOOLS = [
     ("service_status", "检查本地后端服务是否可用", {"type": "object", "properties": {}, "additionalProperties": False}, tool_service_status),
     ("environment_check", "检查端口、目录写权限、磁盘与 FFmpeg 环境；返回可行动诊断", {"type": "object", "properties": {}, "additionalProperties": False}, tool_environment_check),
+    ("platform_health", "查询各平台通路健康统计（分平台成功率、错误分类；小样本标注 insufficient）", {"type": "object", "properties": {}, "additionalProperties": False}, tool_platform_health),
     ("platform_capabilities", "查询平台能力矩阵（先发现能力再发起操作）",
      {"type": "object", "properties": {"platform": {"type": "string", "enum": list(CAPABILITIES)}}, "additionalProperties": False}, tool_platform_capabilities),
     ("collect_detect_url", "统一链接识别：返回平台、规范化 URL 与平台内容 ID",

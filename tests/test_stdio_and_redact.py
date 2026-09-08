@@ -87,11 +87,11 @@ def test_stdio_initialize_and_tools_list():
     assert init["serverInfo"]["name"] == "wechat-mp-tools"
     tools = msgs[1]["result"]["tools"]
     names = {t["name"] for t in tools}
-    # 与 HTTP 版注册表完全一致（49 工具：含环境检查）
+    # 与 HTTP 版注册表完全一致（50 工具：含环境检查）
     assert {"mp_collect", "douyin_download_single", "bili_detect_url", "xhs_parse",
             "channels_fetch_video_profile", "transcode_start", "mp_start_auth",
             "mp_search_biz", "mp_hot_articles", "collect_task_retry_failed", "environment_check"} <= names
-    assert len(tools) == 49
+    assert len(tools) == 50
 
 
 def test_stdio_unknown_method_and_notification():

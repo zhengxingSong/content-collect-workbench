@@ -31,6 +31,15 @@ def _probe_mcp(port: int) -> dict:
         return {"ok": False, "error": str(e)[:120], "port": port}
 
 
+@status_bp.route("/health/platforms", methods=["GET"])
+@local_access_required
+def get_platform_health_stats():
+    """分平台通路健康统计（来自真实任务结果，非主动探测）。"""
+    from backend.core.platform_health import get_all_health
+    return jsonify({"success": True, "summary": "平台健康统计",
+                    "data": {"platforms": get_all_health()}, "error": None})
+
+
 @status_bp.route("/environment", methods=["GET"])
 @local_access_required
 def get_environment():

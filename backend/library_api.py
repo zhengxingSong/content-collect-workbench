@@ -219,6 +219,23 @@ def open_folder(entry_id):
         return jsonify(fail(CollectError(ErrorCode.INTERNAL, str(e)))), 200
 
 
+@library_bp.route("/entries/<entry_id>/retry-media", methods=["POST"])
+@local_access_required
+def retry_media(entry_id):
+    """定向补采条目内失败媒体；成功后更新 manifest 与完整性状态。"""
+    from backend.media_retry import retry_entry_media
+    try:
+        result = retry_entry_media(entry_id)
+    except CollectError as e:
+        return jsonify(fail(e)), 404 if e.code == ErrorCode.NOT_FOUND else 400
+    if result["retried"] == 0:
+        return jsonify(ok("该条目没有可补采的失败媒体", result))
+    summary = (f"补采完成：成功 {result['succeeded']}/{result['retried']}"
+               if result["failed"] == 0 else
+               f"补采部分成功：{result['succeeded']}/{result['retried']}，剩余 {result['failed']} 个仍失败")
+    return jsonify(ok(summary, result))
+
+
 @library_bp.route("/entries/batch-download", methods=["POST"])
 @local_access_required
 def batch_download_entries():

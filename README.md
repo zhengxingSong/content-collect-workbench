@@ -1,6 +1,6 @@
 # 内容收集工作台 (Content Collect Workbench)
 
-本地运行的多来源内容采集枢纽：**微信公众号 / 视频号 / 抖音 / 快手 / 小红书 / 哔哩哔哩** 的内容采集、媒体本地化与统一内容库，原生支持 **MCP 协议（49 个工具）** 供 AI Agent 操作，同时提供 Web 单页仪表盘与 Electron 桌面端。
+本地运行的多来源内容采集枢纽：**微信公众号 / 视频号 / 抖音 / 快手 / 小红书 / 哔哩哔哩** 的内容采集、媒体本地化与统一内容库，原生支持 **MCP 协议（50 个工具）** 供 AI Agent 操作，同时提供 Web 单页仪表盘与 Electron 桌面端。
 
 > 本项目 fork 自多平台下载工具箱并完成 MCP 化与桌面端重构（详见 [docs/设计文档.md](docs/设计文档.md) 的通道演进记录）。
 
@@ -45,7 +45,7 @@ HTTP 方式（远程 agent / 桌面端共用）：
 }
 ```
 
-stdio 兜底（本地客户端）：`python mcp_server.py`，同一注册表 49 工具。
+stdio 兜底（本地客户端）：`python mcp_server.py`，同一注册表 50 工具。
 
 完整工具清单与调用约定见 [docs/MCP工具清单.md](docs/MCP工具清单.md)。支持 **askuser 认证流**：agent 调用 `mp_start_auth` 获得二维码，用户扫码后 `mp_check_auth` 确认，全程无需打开 Web。
 
@@ -60,7 +60,7 @@ Electron 外壳参照 llama.cpp desktop 模式：启动后监督服务进程，�
 | [docs/架构文档.md](docs/架构文档.md) | 运行时拓扑、模块职责、数据流、安全模型 |
 | [docs/设计文档.md](docs/设计文档.md) | 通道演进、契约设计、关键决策与理由 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 已完成里程碑、近期改造、中期候选与生态风险 |
-| [docs/MCP工具清单.md](docs/MCP工具清单.md) | 49 工具全量参考 |
+| [docs/MCP工具清单.md](docs/MCP工具清单.md) | 50 工具全量参考 |
 | [docs/Docker部署.md](docs/Docker部署.md) | 部署细节、卷与端口、平台登录限制 |
 | [docs/顶层设计-MCP化与桌面端.md](docs/顶层设计-MCP化与桌面端.md) | 原始顶层设计 + 变更记录（历史档案） |
 
