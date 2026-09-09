@@ -126,8 +126,10 @@ def restore_library_backup():
 
 
 def _preview_video_page(entry_id: str, entry_dir):
-    """视频/音频条目预览页:内嵌播放器 + 逐文件下载链接,零脚本。"""
+    """视频/音频条目预览页:单播放器 + 选集列表切换,点选集/上/下集切换主播放器,播完自动续播。"""
     import html as html_mod
+    import json as _json
+    import re as _re
     meta = library.get_entry(entry_id) or {}
     title = meta.get("title") or entry_dir.name
     files = meta.get("files") or []
@@ -143,41 +145,131 @@ def _preview_video_page(entry_id: str, entry_dir):
         n = int(n or 0)
         return f"{n / 1073741824:.2f} GB" if n > 1073741824 else f"{n / 1048576:.1f} MB"
 
-    parts = []
+    def ep_label(p):
+        base = p.rsplit("/", 1)[-1]
+        stem = base[:-4] if base.lower().endswith((".mp4", ".webm", ".mp3", ".m4a")) else base
+        m = _re.search(r"_P(\d+)", stem)
+        if m:
+            num = int(m.group(1))
+            rest = stem[m.end():].lstrip("_").strip()
+            return num, (rest or stem)
+        return 10 ** 9, stem
+
+    items = []
     for f in media:
-        p = f["path"]
-        is_audio = p.lower().endswith((".mp3", ".m4a"))
-        tag = "audio" if is_audio else "video"
-        parts.append(f"""
-        <section style="margin:0 0 26px">
-          <h3 style="font-size:15px;margin:0 0 8px">{html_mod.escape(p.rsplit('/', 1)[-1])}
-            <span style="color:#888;font-weight:400;font-size:12px"> · {fmt_size(f.get('size'))}</span></h3>
-          <{tag} controls preload="metadata" style="width:100%;max-width:960px;border-radius:10px;background:#000"
-            src="{furl(p)}"></{tag}>
-          <div style="margin-top:6px"><a style="color:#2dd98a" href="{furl(p)}" download>下载此文件</a></div>
-        </section>""")
+        num, label = ep_label(f["path"])
+        items.append({"num": num, "label": label, "path": f["path"],
+                      "size": fmt_size(f.get("size")), "url": furl(f["path"]),
+                      "audio": f["path"].lower().endswith((".mp3", ".m4a"))})
+    items.sort(key=lambda x: x["num"])
+
+    poster = ""
+    for f in files:
+        if str(f.get("path", "")).endswith("-poster.jpg") or str(f.get("path", "")).lower().endswith((".jpg", ".png")):
+            poster = furl(f["path"])
+            break
+
+    playlist = []
+    for i, it in enumerate(items):
+        tag = "音" if it["audio"] else f"{i + 1:02d}"
+        playlist.append(
+            f'<div class="ep" data-i="{i}" role="button" tabindex="0">'
+            f'<span class="ep-num">{tag}</span>'
+            f'<span class="ep-title" title="{html_mod.escape(it["label"])}">{html_mod.escape(it["label"])}</span>'
+            f'<span class="ep-size">{it["size"]}</span></div>')
+
+    others_html = ""
     if others:
         lis = "".join(
             f'<li><a style="color:#2dd98a" href="{furl(f["path"])}" download>{html_mod.escape(f["path"])}</a>'
             f' <span style="color:#888">({fmt_size(f.get("size"))})</span></li>' for f in others)
-        parts.append(f'<section><h3 style="font-size:14px">其他文件({len(others)})</h3><ul style="line-height:1.9">{lis}</ul></section>')
+        others_html = f'<h3 style="font-size:13px;margin:22px 0 6px">其他文件({len(others)})</h3><ul style="line-height:1.9;margin:0;padding-left:18px;font-size:12.5px">{lis}</ul>'
+
+    author = (meta.get("author") or {}).get("name", "") if isinstance(meta.get("author"), dict) else str(meta.get("author") or "")
+    orig = f' · <a style="color:#2dd98a" href="https://www.bilibili.com/video/{meta.get("bvid")}" target="_blank" rel="noopener">原址</a>' if meta.get("bvid") else ""
+    items_json = _json.dumps(items, ensure_ascii=False)
 
     page = f"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>{html_mod.escape(title)}</title></head>
-    <body style="margin:0;background:#0b0e14;color:#e9ecf2;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
-    <div style="max-width:980px;margin:0 auto;padding:28px 20px 60px">
-      <h1 style="font-size:20px;line-height:1.45;margin:0 0 6px">{html_mod.escape(title)}</h1>
-      <div style="color:#888;font-size:12.5px;margin-bottom:24px">
-        {html_mod.escape((meta.get('author') or {}).get('name', '') if isinstance(meta.get('author'), dict) else str(meta.get('author') or ''))}
-        · 共 {len(media)} 个媒体文件 · {len(files)} 个文件
-        {f" · <a style='color:#2dd98a' href='https://www.bilibili.com/video/{meta.get('bvid')}' target='_blank' rel='noopener'>原址</a>" if meta.get('bvid') else ''}
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html_mod.escape(title)}</title>
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ margin:0; background:#0b0e14; color:#e9ecf2; font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; }}
+  .wrap {{ max-width:1200px; margin:0 auto; padding:24px 18px 60px; }}
+  h1 {{ font-size:19px; line-height:1.45; margin:0 0 4px; }}
+  .sub {{ color:#888; font-size:12.5px; margin-bottom:18px; }}
+  .layout {{ display:flex; gap:18px; align-items:flex-start; }}
+  .stage {{ flex:1; min-width:0; }}
+  .player {{ width:100%; max-height:70vh; border-radius:12px; background:#000; display:block; }}
+  .bar {{ display:flex; align-items:center; gap:10px; margin-top:10px; }}
+  .btn {{ background:#1c2333; color:#e9ecf2; border:1px solid #2a3450; border-radius:8px; padding:6px 14px; font-size:13px; cursor:pointer; }}
+  .btn:disabled {{ opacity:.4; cursor:not-allowed; }}
+  .btn:hover:not(:disabled) {{ border-color:#2dd98a; color:#2dd98a; }}
+  .now {{ flex:1; text-align:center; font-size:13px; color:#c7cdd8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .side {{ width:340px; flex:none; max-height:70vh; overflow:auto; border:1px solid #20293c; border-radius:12px; background:#11151f; }}
+  .side h3 {{ margin:0; padding:10px 14px; font-size:12px; color:#888; border-bottom:1px solid #20293c; position:sticky; top:0; background:#11151f; }}
+  .ep {{ display:flex; align-items:center; gap:10px; padding:9px 14px; cursor:pointer; border-bottom:1px solid #181f2e; font-size:13px; }}
+  .ep:hover {{ background:#1a2232; }}
+  .ep.cur {{ background:#123023; }}
+  .ep.cur .ep-num {{ background:#2dd98a; color:#06281a; }}
+  .ep-num {{ flex:none; width:26px; height:26px; border-radius:7px; background:#232b3d; color:#a0a7b5; display:grid; place-items:center; font-size:11px; font-family:ui-monospace,monospace; }}
+  .ep-title {{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .ep-size {{ flex:none; font-size:11px; color:#6b7384; font-family:ui-monospace,monospace; }}
+  .others {{ margin-top:18px; }}
+  @media (max-width:820px) {{ .layout {{ flex-direction:column; }} .side {{ width:100%; max-height:220px; }} }}
+</style></head>
+<body><div class="wrap">
+  <h1>{html_mod.escape(title)}</h1>
+  <div class="sub">{html_mod.escape(author)} · 共 {len(items)} 个媒体文件 · {len(files)} 个文件{orig}</div>
+  <div class="layout">
+    <div class="stage">
+      <video id="player" class="player" controls preload="metadata"{(' poster="' + poster + '"') if poster else ''}></video>
+      <div class="bar">
+        <button class="btn" id="prev" title="上一集">‹ 上一集</button>
+        <button class="btn" id="next" title="下一集">下一集 ›</button>
+        <div class="now" id="nowLabel"></div>
+        <a class="btn" id="dl" href="#" download style="text-decoration:none">下载</a>
       </div>
-      {''.join(parts)}
-    </div></body></html>"""
+    </div>
+    <div class="side">
+      <h3>选集 · {len(items)}</h3>
+      {''.join(playlist)}
+    </div>
+  </div>
+  <div class="others">{others_html}</div>
+</div>
+<script>
+(function(){{
+  var items = {items_json};
+  var player = document.getElementById('player');
+  var now = document.getElementById('nowLabel');
+  var dl = document.getElementById('dl');
+  var prev = document.getElementById('prev'), next = document.getElementById('next');
+  var eps = Array.prototype.slice.call(document.querySelectorAll('.ep'));
+  var cur = 0;
+  function render(){{
+    var it = items[cur];
+    player.src = it.url;
+    player.load();
+    if (it.audio) {{ player.play && player.play()['catch'](function(){{}}); }}
+    now.textContent = (cur + 1) + ' / ' + items.length + ' · ' + it.label;
+    dl.href = it.url;
+    eps.forEach(function(e,i){{ e.classList.toggle('cur', i === cur); }});
+    if (eps[cur]) eps[cur].scrollIntoView({{ block:'nearest' }});
+    prev.disabled = cur === 0;
+    next.disabled = cur === items.length - 1;
+  }}
+  eps.forEach(function(e,i){{ e.addEventListener('click', function(){{ cur = i; render(); }}); }});
+  prev.addEventListener('click', function(){{ if (cur > 0) {{ cur--; render(); }} }});
+  next.addEventListener('click', function(){{ if (cur < items.length - 1) {{ cur++; render(); }} }});
+  player.addEventListener('ended', function(){{ if (cur < items.length - 1) {{ cur++; render(); }} }});
+  render();
+}})();
+</script>
+</body></html>"""
     from flask import Response
     return Response(page, mimetype="text/html",
-                    headers={"Content-Security-Policy": "default-src 'none'; media-src 'self'; img-src 'self'; style-src 'unsafe-inline'; sandbox allow-same-origin",
+                    headers={"Content-Security-Policy": "default-src 'none'; media-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; sandbox allow-same-origin",
                              "X-Content-Type-Options": "nosniff"})
 
 
