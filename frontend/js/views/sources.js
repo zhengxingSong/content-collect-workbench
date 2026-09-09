@@ -16,7 +16,7 @@ const SourcesPage = {
       <div class="sources-grid stagger" id="sourcesGrid"></div>
       <div class="grid-2" style="margin-top:20px">
         <div class="panel">
-          <div class="panel-head"><div><div class="panel-title">账号池</div><div class="panel-sub">自动轮换 · 风控自愈 · 冷却调度</div></div><div class="spacer"></div><button class="mini-btn" id="btnVerifyPool">全量验活</button></div>
+          <div class="panel-head"><div><div class="panel-title">账号与登录态</div><div class="panel-sub">真实登录态 · 点击「管理」发起登录</div></div><div class="spacer"></div><button class="mini-btn" id="btnVerifyPool">全量验活</button></div>
           <div id="poolList"></div>
         </div>
         <div class="panel">
@@ -187,7 +187,34 @@ const SourcesPage = {
           <span class="pill ok">已收藏</span></div>`).join('');
       else rows += `<div class="src-row"><div class="empty" style="padding:14px">暂无收藏公众号</div></div>`;
     } catch (e) { /* accounts 端点失败不阻塞 */ }
+    // 各平台登录态(真实探测,含 B站扫码结果)
+    const addState = async (id, name) => {
+      try {
+        let st, on = false, sub = '';
+        if (id === 'bilibili') {
+          st = await API.auth.bilibili.status();
+          on = !!st.logged_in;
+          sub = (st.account_info && (st.account_info.uname || st.account_info.nickname)) || st.message || '';
+        } else if (id === 'xhs') {
+          st = await API.auth.xhs.status();
+          const ls = st.login_state || {};
+          on = ls.status === 'success' || !!st.logged_in;
+          sub = on ? 'Cookie 已保存' : '未登录';
+        } else {
+          st = await API.auth[id].status();
+          on = st.status === 'success';
+          sub = st.message || '';
+        }
+        rows += `<div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get(id).color}">${UI.esc(name[0])}</div>
+          <div style="min-width:0;flex:1"><div class="src-name">${UI.esc(name)} 登录态</div><div class="src-sub">${UI.esc(sub)}</div></div>
+          ${on ? '<span class="pill ok">已登录</span>' : '<span class="pill">未登录</span>'}<button class="mini-btn" data-manage="${id}">管理</button></div>`;
+      } catch (e) { /* 单平台失败不影响其余 */ }
+      poolList.innerHTML = rows;
+    };
     poolList.innerHTML = rows;
+    void ['bilibili', 'douyin', 'kuaishou', 'xhs'].reduce((chain, id) =>
+      chain.then(() => addState(id, SourceRegistry.get(id).label)), Promise.resolve());
+    void addState;
   },
 
   renderMockPool(poolList, poolPill) {
@@ -267,6 +294,17 @@ const SourcesPage = {
     run();
   },
 
+  _containerCache: undefined,
+  async isContainerMode() {
+    if (this._containerCache !== undefined) return this._containerCache;
+    try {
+      const s = await API.settings.get();
+      const dir = (s && s.download_dir) || '';
+      this._containerCache = dir.startsWith('/app/') || (dir.startsWith('/') && !/^[a-zA-Z]:/.test(dir));
+    } catch (e) { this._containerCache = false; }
+    return this._containerCache;
+  },
+
   /** 抖音/快手/小红书:浏览器会话登录(start + status 轮询) */
   browserAuthModal(s, kind) {
     const auth = kind === 'xhs' ? API.auth.xhs : API.auth[kind || s.id];
@@ -289,6 +327,10 @@ const SourcesPage = {
       if (msg) msgEl.textContent = msg;
     };
     overlay.querySelector('#authStart').addEventListener('click', async () => {
+      if (await this.isContainerMode()) {
+        msgEl.innerHTML = '检测到 <b>容器部署</b>:后端无法唤起宿主机浏览器完成扫码。<br>替代方案:① 在宿主机用 venv 直接运行后端;② 使用桌面壳(Electron)启动的本地实例;③ 若仅采公开内容,无需登录可直接采集。';
+        return;
+      }
       try {
         const r = await auth.start();
         if (r.mock) { msgEl.textContent = '演示模式:后端不可达,无法发起真实登录'; return; }
@@ -338,6 +380,10 @@ const SourcesPage = {
     overlay.querySelector('#chProxyStart').addEventListener('click', async () => { try { const r = await API.auth.wechatChannels.proxyStart(); say(r.message || '代理已启动'); refresh(); } catch (e) { say(e.message); } });
     overlay.querySelector('#chInstallCert').addEventListener('click', async () => { try { const r = await API.auth.wechatChannels.installCert(); say(r.message || '证书已安装'); } catch (e) { say(e.message); } });
     overlay.querySelector('#chCookieStart').addEventListener('click', async () => {
+      if (await this.isContainerMode()) {
+        say('容器部署无法唤起宿主机浏览器完成微信扫码;请在宿主机以 venv 运行后端或使用桌面壳。');
+        return;
+      }
       try {
         const r = await API.auth.wechatChannels.cookieStart();
         say(r.mock ? '演示模式:后端不可达' : (r.message || '已启动 Cookie 获取,请在打开的窗口中登录'));

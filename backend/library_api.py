@@ -209,6 +209,28 @@ def preview_entry(entry_id):
                              "X-Content-Type-Options": "nosniff"})
 
 
+@library_bp.route("/entries/<entry_id>/files", methods=["GET"])
+def list_entry_files(entry_id):
+    """递归列出条目目录内文件(相对路径+大小),供前端资源浏览器使用"""
+    entry_dir = library.find_entry(entry_id)
+    if not entry_dir:
+        return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, "entry not found"))), 404
+    files = []
+    for fp in sorted(entry_dir.rglob("*")):
+        if fp.is_file():
+            try:
+                files.append({
+                    "path": fp.relative_to(entry_dir).as_posix(),
+                    "size": fp.stat().st_size,
+                })
+            except OSError:
+                continue
+    return jsonify(ok("文件列表", {
+        "entry_id": entry_id, "dir": str(entry_dir),
+        "files": files, "total": len(files),
+    }))
+
+
 @library_bp.route("/entries/<entry_id>/open-folder", methods=["POST"])
 @local_access_required
 def open_folder(entry_id):

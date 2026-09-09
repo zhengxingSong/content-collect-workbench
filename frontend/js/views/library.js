@@ -83,8 +83,51 @@ const LibraryPage = {
   },
 
   async openFolder(id) {
-    try { const r = await API.library.openFolder(id); UI.toast('已调用文件管理器', r.message || id); }
-    catch (err) { UI.toast('打开失败', err.message, 'err'); }
+    try {
+      const r = await API.library.openFolder(id);
+      const d = r.data || r;
+      if (d && d.supported === false) {
+        UI.toast('容器部署无法唤起宿主机文件管理器', '已改为浏览器内查看资源', 'warn');
+        this.filesBrowser(id);
+        return;
+      }
+      UI.toast('已打开目录', (d && (d.dir || d.message)) || id);
+    } catch (err) { UI.toast('打开失败', err.message, 'err'); }
+  },
+
+  /** 二级资源浏览器:条目内全部文件,点击即在新标签查看/下载 */
+  async filesBrowser(id) {
+    const { close, overlay } = UI.openModal(`
+      <div class="modal-head"><div><div class="modal-title">资源浏览</div><div class="modal-sub mono">${UI.esc(id)}</div></div><button class="icon-btn modal-x" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button class="btn" id="fbPreview">阅读视图</button>
+          <button class="btn" id="fbZip">打包下载整条</button>
+        </div>
+        <div class="manifest-grid" id="fbList" style="max-height:380px;overflow:auto"><div class="empty">加载中…</div></div>
+      </div>
+      <div class="modal-foot"><button class="btn primary" data-close>关闭</button></div>`, { wide: true });
+    overlay.querySelector('#fbPreview').addEventListener('click', () => window.open(API.library.previewUrl(id), '_blank'));
+    overlay.querySelector('#fbZip').addEventListener('click', () => window.open(API.library.downloadEntryUrl(id), '_blank'));
+    let d;
+    try { d = await API.library.files(id); } catch (err) {
+      overlay.querySelector('#fbList').innerHTML = `<div class="empty">加载失败:${UI.esc(err.message)}</div>`;
+      return;
+    }
+    if (!overlay.isConnected) return;
+    const list = d.files || [];
+    const fmt = n => !n ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+    overlay.querySelector('#fbList').innerHTML = list.length ? list.map(f => `
+      <div class="manifest-row" style="cursor:pointer" data-fpath="${UI.esc(f.path)}" title="点击查看/下载">
+        <span class="f-ico">${f.path.endsWith('.html') || f.path.endsWith('.md') ? 'T' : f.path.match(/\.(png|jpe?g|webp|gif)$/i) ? 'IMG' : f.path.match(/\.(mp4|m4s)$/i) ? 'VID' : 'F'}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="mono">${UI.esc(f.path)}</span>
+        <span class="mono" style="color:var(--text-3);font-size:10.5px">${fmt(f.size)}</span>
+        <span class="sha ok">打开</span>
+      </div>`).join('') : '<div class="empty">条目目录为空</div>';
+    overlay.querySelector('#fbList').addEventListener('click', e => {
+      const row = e.target.closest('[data-fpath]');
+      if (row) window.open(API.library.fileUrl(id, row.dataset.fpath), '_blank');
+    });
   },
 
   async exportModal() {
@@ -213,8 +256,12 @@ const LibraryPage = {
     overlay.querySelector('.modal-foot').innerHTML = `
       <button class="btn" data-close>关闭</button>
       <button class="btn" id="mOpenDir">打开目录</button>
+      <button class="btn" id="mFiles">资源文件</button>
+      <button class="btn" id="mPreview">阅读视图</button>
       <button class="btn primary" id="mExport" ${e.collection_status === 'corrupt' ? 'disabled' : ''}>导出此条</button>`;
     overlay.querySelector('#mOpenDir').addEventListener('click', () => { this.openFolder(id); });
+    overlay.querySelector('#mFiles').addEventListener('click', () => { close(); this.filesBrowser(id); });
+    overlay.querySelector('#mPreview').addEventListener('click', () => window.open(API.library.previewUrl(id), '_blank'));
     overlay.querySelector('#mExport').addEventListener('click', async () => {
       try {
         const r = await API.library.exportEntries([id], `data/exports/${id}.zip`);

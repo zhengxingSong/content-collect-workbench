@@ -112,6 +112,13 @@ const API = (() => {
       }),
       exportEntries: (ids, dest) => api.act('lib-export', '/api/library/export', { method: 'POST', body: JSON.stringify({ entry_ids: ids, dest }) }, { exported: ids.length }),
       openFolder: id => api.act('lib-dir', `/api/library/entries/${id}/open-folder`, { method: 'POST' }, { message: '已打开(演示)' }),
+      files: id => api.liveGet('lib-f', `/api/library/entries/${id}/files`, () => {
+        const e = Mock.entries.find(x => x.id === id);
+        return { entry_id: id, dir: '', files: (e ? e.files : []).map(f => ({ path: f.name || f.path, size: 0 })), total: e ? e.files.length : 0 };
+      }),
+      previewUrl: id => `/api/library/entries/${id}/preview`,
+      fileUrl: (id, path) => `/api/library/entries/${id}/file?path=${encodeURIComponent(path)}`,
+      downloadEntryUrl: id => `/api/library/entries/${id}/download`,
       backups: {
         list: () => api.liveGet('bk-list', '/api/library/backup/list', () => ({ backups: Mock.backups.map(b => ({ name: b.name + '.zip', path: b.id, size: 13762560000 * Math.random(), mtime_h: b.date, entries: b.entries, files: b.files, type: b.type })) })),
         create: () => api.act('bk', '/api/library/backup', { method: 'POST', body: '{}' }, { mock: true }),
@@ -208,6 +215,7 @@ const API = (() => {
         logout: () => api.act('au-xhs-o', '/api/xhs-auth/logout', { method: 'POST' }, { message: '已退出' }),
       },
       bilibili: {
+        status: () => api.liveGet('au-bili-s', '/api/bilibili-auth/status', () => ({ logged_in: false, message: '演示模式' })),
         qrGenerate: () => api.act('au-bili', '/api/bilibili-auth/qrcode/generate', {}, { url: 'demo://qr', qrcode_key: 'demo' }),
         qrSvg: data => `/api/bilibili-auth/qrcode/svg?data=${encodeURIComponent(data)}`,
         poll: key => api.act('au-bili-p', '/api/bilibili-auth/qrcode/poll', { method: 'POST', body: JSON.stringify({ qrcode_key: key }) }, { status: 'not_scanned' }),
