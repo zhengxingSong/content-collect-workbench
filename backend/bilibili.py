@@ -88,10 +88,23 @@ def _reset_task_state(total: int = 0):
 def ensure_bili_dirs():
     BILI_DIR.mkdir(parents=True, exist_ok=True)
 
-def clean_filename(filename: str) -> str:
+def _truncate_utf8(s: str, max_bytes: int) -> str:
+    raw = s.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return s
+    return raw[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def clean_filename(filename: str, max_bytes: int = 84) -> str:
+    """文件名清洗;按 UTF-8 字节截断。
+
+    文件系统单组件上限 255 字节,组合名 = 标题 + _Pxx_ + 分P名 + .mp4,
+    单片 84 字节可保证组合不超限(长标题课程此前触发 Errno 36)。
+    """
     filename = re.sub(r'[\\/:*?"<>|\n\r\t]', "", filename)
     filename = filename.strip().replace(" ", "_")
-    return filename[:80] if filename else "untitled"
+    filename = _truncate_utf8(filename, max_bytes)
+    return filename if filename else "untitled"
 
 def add_history_item(title: str, item_type: str, file_path: str, size_bytes: int, bvid: str = ""):
     source = ""
