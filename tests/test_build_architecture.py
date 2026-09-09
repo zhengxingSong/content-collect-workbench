@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = ROOT / "wechat_mp_tools.spec"
+SPEC = ROOT / "content_collect_workbench.spec"
 
 
 def spec_source() -> str:
@@ -30,12 +30,12 @@ def resolver_for(platform: str, environment: dict[str, str]):
 def test_target_arch_resolver_accepts_explicit_macos_architectures():
     assert resolver_for("darwin", {})() is None
     assert resolver_for("darwin", {})("x86_64") == "x86_64"
-    assert resolver_for("darwin", {"WECHAT_MP_TOOLS_TARGET_ARCH": "arm64"})() == "arm64"
-    assert resolver_for("darwin", {"WECHAT_MP_TOOLS_TARGET_ARCH": "x86_64"})() == "x86_64"
+    assert resolver_for("darwin", {"CONTENT_COLLECT_WORKBENCH_TARGET_ARCH": "arm64"})() == "arm64"
+    assert resolver_for("darwin", {"CONTENT_COLLECT_WORKBENCH_TARGET_ARCH": "x86_64"})() == "x86_64"
 
 
 def test_target_arch_resolver_rejects_unsupported_macos_architecture():
-    resolver = resolver_for("darwin", {"WECHAT_MP_TOOLS_TARGET_ARCH": "universal2"})
+    resolver = resolver_for("darwin", {"CONTENT_COLLECT_WORKBENCH_TARGET_ARCH": "universal2"})
     try:
         resolver()
     except ValueError as exc:
@@ -45,7 +45,7 @@ def test_target_arch_resolver_rejects_unsupported_macos_architecture():
 
 
 def test_target_arch_resolver_leaves_non_macos_platforms_native():
-    resolver = resolver_for("win32", {"WECHAT_MP_TOOLS_TARGET_ARCH": "x86_64"})
+    resolver = resolver_for("win32", {"CONTENT_COLLECT_WORKBENCH_TARGET_ARCH": "x86_64"})
     assert resolver() is None
 
 

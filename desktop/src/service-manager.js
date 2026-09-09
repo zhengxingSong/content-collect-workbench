@@ -230,7 +230,7 @@ class ServiceManager {
     const mcp = new ManagedService('mcp',
       [py, '-m', 'backend.mcp_server', '--port', String(mcpPort), '--host', host],
       { cwd: this.projectRoot, readyUrl: `${this.mcpUrl}/health`,
-        env: { WECHAT_MP_TOOLS_URL: this.backendUrl },
+        env: { CONTENT_COLLECT_WORKBENCH_URL: this.backendUrl },
         logger: this.logger, budget });
 
     this.services.backend = backend;

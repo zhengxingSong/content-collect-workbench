@@ -55,7 +55,7 @@ def _fake_bundle(
     chromium_dylib_arch: str | None = None,
 ) -> Path:
     """Create a minimal .app tree with optional ms-playwright Chromium."""
-    app = tmp_path / "WeChat MP Tools.app"
+    app = tmp_path / "Content Collect Workbench.app"
     contents = app / "Contents"
     macos = contents / "MacOS"
     macos.mkdir(parents=True)

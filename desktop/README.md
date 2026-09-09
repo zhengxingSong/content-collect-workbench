@@ -7,7 +7,7 @@ Electron 外壳，参照 llama.cpp desktop 模式：启动后自动拉起并监�
 | 服务 | 命令 | 就绪探针 | 说明 |
 |---|---|---|---|
 | Flask 后端 | `venv312 python app.py --no-browser --port 5200` | `GET /api/settings` | 业务、账号池、RSS 调度 |
-| MCP HTTP | `venv312 python -m backend.mcp_server --port 3333` | `GET /health` | agent 接入；后端地址经 `WECHAT_MP_TOOLS_URL` 注入 |
+| MCP HTTP | `venv312 python -m backend.mcp_server --port 3333` | `GET /health` | agent 接入；后端地址经 `CONTENT_COLLECT_WORKBENCH_URL` 注入 |
 
 - **就绪分层**：进程存活 → HTTP 就绪 → 窗口加载 SPA（未就绪时显示等待页并自动重试）。
 - **故障预算**：每服务 5 次/小时滑动窗口，指数退避 + 随机抖动；配置错误（Python 缺失、端口冲突）不重启，直接弹窗报错。

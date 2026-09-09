@@ -3,7 +3,7 @@
 
 - 协议与传输层与 HTTP 版完全一致（2025-03-26，initialize/tools/resources）；
 - 工具注册表直接复用 backend.mcp_server.tools（45 个工具），响应契约统一；
-- 连接模式：不负责拉起后端，仅连接运行中的 Flask 服务（WECHAT_MP_TOOLS_URL，
+- 连接模式：不负责拉起后端，仅连接运行中的 Flask 服务（CONTENT_COLLECT_WORKBENCH_URL，
   默认 http://127.0.0.1:5200）；后端未启动时工具返回结构化 SERVICE_UNAVAILABLE；
 - 令牌从 state/service.json 读取（backend_client 自动附带）。
 

@@ -102,8 +102,8 @@ class TestMacOSBuildSteps:
 
     def test_full_build_sets_target_arch(self, macos_job: dict):
         run = self._step_run(macos_job, "Build macOS APP (Full)")
-        assert "WECHAT_MP_TOOLS_TARGET_ARCH" in run, (
-            "Full build must set WECHAT_MP_TOOLS_TARGET_ARCH"
+        assert "CONTENT_COLLECT_WORKBENCH_TARGET_ARCH" in run, (
+            "Full build must set CONTENT_COLLECT_WORKBENCH_TARGET_ARCH"
         )
         assert "${{ matrix.pyinstaller_arch }}" in run, (
             "Full build must use matrix.pyinstaller_arch for TARGET_ARCH"
@@ -111,8 +111,8 @@ class TestMacOSBuildSteps:
 
     def test_lite_build_sets_target_arch(self, macos_job: dict):
         run = self._step_run(macos_job, "Build macOS APP (Lite)")
-        assert "WECHAT_MP_TOOLS_TARGET_ARCH" in run, (
-            "Lite build must set WECHAT_MP_TOOLS_TARGET_ARCH"
+        assert "CONTENT_COLLECT_WORKBENCH_TARGET_ARCH" in run, (
+            "Lite build must set CONTENT_COLLECT_WORKBENCH_TARGET_ARCH"
         )
         assert "${{ matrix.pyinstaller_arch }}" in run, (
             "Lite build must use matrix.pyinstaller_arch for TARGET_ARCH"
@@ -268,9 +268,9 @@ class TestDocumentation:
             "BUILD.md must mention x86_64"
         )
 
-    def test_build_md_mentions_wechat_mp_tools_target_arch(self, build_md: str):
-        assert "WECHAT_MP_TOOLS_TARGET_ARCH" in build_md, (
-            "BUILD.md must document WECHAT_MP_TOOLS_TARGET_ARCH for local builds"
+    def test_build_md_mentions_content_collect_workbench_target_arch(self, build_md: str):
+        assert "CONTENT_COLLECT_WORKBENCH_TARGET_ARCH" in build_md, (
+            "BUILD.md must document CONTENT_COLLECT_WORKBENCH_TARGET_ARCH for local builds"
         )
 
     def test_build_md_mentions_macos_15_intel(self, build_md: str):
@@ -279,6 +279,6 @@ class TestDocumentation:
         )
 
     def test_build_md_documents_intel_local_build(self, build_md: str):
-        assert "x86_64" in build_md and "WECHAT_MP_TOOLS_TARGET_ARCH=x86_64" in build_md, (
+        assert "x86_64" in build_md and "CONTENT_COLLECT_WORKBENCH_TARGET_ARCH=x86_64" in build_md, (
             "BUILD.md must show how to build x86_64 locally on Intel Mac"
         )

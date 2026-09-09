@@ -1,1 +1,1 @@
-# WeChat MP Tools Backend Package
+# Content Collect Workbench Backend Package

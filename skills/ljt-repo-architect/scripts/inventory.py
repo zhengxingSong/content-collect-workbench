@@ -41,7 +41,7 @@ _ENTRYPOINT_FILES = {
     "wechat_mp_login.py",
     "wechat_mp_batch_downloader.py",
     "wechat_mp_article_fetcher.py",
-    "wechat_mp_tools.spec",
+    "content_collect_workbench.spec",
 }
 
 

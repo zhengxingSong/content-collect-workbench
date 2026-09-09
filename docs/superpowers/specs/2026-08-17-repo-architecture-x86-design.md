@@ -60,14 +60,14 @@ Replace the single macOS job with a matrix containing:
 - ARM64: `macos-latest`, expected PyInstaller target `arm64`
 - x86_64: `macos-15-intel`, expected PyInstaller target `x86_64`
 
-Set `WECHAT_MP_TOOLS_TARGET_ARCH` for every macOS build. Update `wechat_mp_tools.spec` so macOS `EXE(... target_arch=...)` consumes that environment value and rejects unsupported values. Leave non-macOS target selection as `None`.
+Set `CONTENT_COLLECT_WORKBENCH_TARGET_ARCH` for every macOS build. Update `content_collect_workbench.spec` so macOS `EXE(... target_arch=...)` consumes that environment value and rejects unsupported values. Leave non-macOS target selection as `None`.
 
 Each matrix variant builds both Full and Lite variants and uploads architecture-labeled artifacts:
 
-- `WeChat-MP-Tools-macOS-ARM64-Full`
-- `WeChat-MP-Tools-macOS-ARM64-Lite`
-- `WeChat-MP-Tools-macOS-x86-64-Full`
-- `WeChat-MP-Tools-macOS-x86-64-Lite`
+- `Content-Collect-Workbench-macOS-ARM64-Full`
+- `Content-Collect-Workbench-macOS-ARM64-Lite`
+- `Content-Collect-Workbench-macOS-x86-64-Full`
+- `Content-Collect-Workbench-macOS-x86-64-Lite`
 
 The release job must include all four zipped assets.
 

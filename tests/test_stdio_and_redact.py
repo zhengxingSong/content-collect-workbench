@@ -84,7 +84,7 @@ def test_stdio_initialize_and_tools_list():
     ])
     init = msgs[0]["result"]
     assert init["protocolVersion"] == "2025-03-26"
-    assert init["serverInfo"]["name"] == "wechat-mp-tools"
+    assert init["serverInfo"]["name"] == "content-collect-workbench"
     tools = msgs[1]["result"]["tools"]
     names = {t["name"] for t in tools}
     # 与 HTTP 版注册表完全一致（50 工具：含环境检查）

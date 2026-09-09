@@ -9,7 +9,7 @@ import urllib.request
 
 from backend.core import state_store
 
-DEFAULT_BACKEND = os.environ.get("WECHAT_MP_TOOLS_URL", "http://127.0.0.1:5200").rstrip("/")
+DEFAULT_BACKEND = os.environ.get("CONTENT_COLLECT_WORKBENCH_URL", "http://127.0.0.1:5200").rstrip("/")
 
 
 class BackendUnavailable(Exception):
@@ -25,7 +25,7 @@ class BackendError(Exception):
 
 def call(path: str, method: str = "GET", payload: dict | None = None, timeout: int = 60) -> dict:
     """调用后端 API；返回 JSON。后端不可用抛 BackendUnavailable。"""
-    base = os.environ.get("WECHAT_MP_TOOLS_URL", DEFAULT_BACKEND).rstrip("/")
+    base = os.environ.get("CONTENT_COLLECT_WORKBENCH_URL", DEFAULT_BACKEND).rstrip("/")
     url = base + path
     body = None
     headers = {"Accept": "application/json"}

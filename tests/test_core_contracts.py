@@ -342,7 +342,7 @@ def test_mcp_initialize(mcp_client):
     result = resp.get_json()["result"]
     assert result["protocolVersion"] == "2025-03-26"
     assert "tools" in result["capabilities"]
-    assert result["serverInfo"]["name"] == "wechat-mp-tools"
+    assert result["serverInfo"]["name"] == "content-collect-workbench"
 
 
 def test_mcp_unauthorized(mcp_client):

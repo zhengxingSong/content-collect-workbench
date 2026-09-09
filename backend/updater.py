@@ -14,7 +14,7 @@ from backend.config import APP_VERSION, app_dir, get_proxies_dict
 
 updater_bp = Blueprint('updater', __name__)
 
-GITHUB_REPO = "x554960766/wechat-mp-tools"
+GITHUB_REPO = "zhengxingSong/content-collect-workbench"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # 下载状态（进程内单例）
@@ -72,7 +72,7 @@ def check_update():
     try:
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": f"wechat-mp-tools/{APP_VERSION}"
+            "User-Agent": f"content-collect-workbench/{APP_VERSION}"
         }
         resp = requests.get(GITHUB_API_URL, timeout=10, headers=headers, proxies=get_proxies_dict())
         resp.raise_for_status()

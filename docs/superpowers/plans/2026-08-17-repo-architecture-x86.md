@@ -353,11 +353,11 @@ git commit -m "docs: add repository architecture learning guide"
 **Files:**
 
 - Create: `tests/test_build_architecture.py`
-- Modify: `wechat_mp_tools.spec`
+- Modify: `content_collect_workbench.spec`
 
 **Interfaces:**
 
-- Produces spec behavior controlled by `WECHAT_MP_TOOLS_TARGET_ARCH`.
+- Produces spec behavior controlled by `CONTENT_COLLECT_WORKBENCH_TARGET_ARCH`.
 - Allowed macOS values: `arm64`, `x86_64`.
 - Non-macOS and absent values resolve to `None`.
 - Unsupported values must raise `ValueError`.
@@ -388,11 +388,11 @@ Add a small resolver near the top of the spec:
 def macos_target_arch(value=None):
     if sys.platform != "darwin":
         return None
-    requested = (value or os.environ.get("WECHAT_MP_TOOLS_TARGET_ARCH", "")).strip().lower()
+    requested = (value or os.environ.get("CONTENT_COLLECT_WORKBENCH_TARGET_ARCH", "")).strip().lower()
     if not requested:
         return None
     if requested not in {"arm64", "x86_64"}:
-        raise ValueError("WECHAT_MP_TOOLS_TARGET_ARCH must be arm64 or x86_64 on macOS")
+        raise ValueError("CONTENT_COLLECT_WORKBENCH_TARGET_ARCH must be arm64 or x86_64 on macOS")
     return requested
 ```
 
@@ -407,7 +407,7 @@ python3 -m pytest tests/test_build_architecture.py -q
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_build_architecture.py wechat_mp_tools.spec
+git add tests/test_build_architecture.py content_collect_workbench.spec
 git commit -m "build: select explicit macOS target architecture"
 ```
 
@@ -421,7 +421,7 @@ git commit -m "build: select explicit macOS target architecture"
 **Interfaces:**
 
 - Produces `architectures(path: Path) -> set[str]`
-- Produces CLI: `python scripts/verify_macos_bundle.py <WeChat MP Tools.app> <arm64|x86_64>`
+- Produces CLI: `python scripts/verify_macos_bundle.py <Content Collect Workbench.app> <arm64|x86_64>`
 - Exits 0 only when the main executable, at least one native extension, and any bundled Chromium executable support the requested architecture.
 
 - [ ] **Step 1: Write failing tests**
@@ -483,7 +483,7 @@ Parse `.github/workflows/build.yml` with PyYAML and assert:
 - macOS job has a two-entry matrix
 - ARM64 uses `macos-latest`
 - x86_64 uses `macos-15-intel`
-- both Full and Lite build commands set `WECHAT_MP_TOOLS_TARGET_ARCH`
+- both Full and Lite build commands set `CONTENT_COLLECT_WORKBENCH_TARGET_ARCH`
 - every build invokes the verifier
 - artifact names contain `ARM64` or `x86-64`
 - release file globs or explicit paths include all four variants

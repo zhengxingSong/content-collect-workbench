@@ -1,6 +1,6 @@
 # 仓库架构指南
 
-本文面向需要维护、调试或扩展本工具的程序员。它以当前源码为准：`main.py` 与 `app.py` 是入口，`backend/` 提供 Flask 蓝图与领域服务，`frontend/` 是无构建步骤的哈希路由 SPA，`injection_scripts/src/` 只服务视频号页面自动化，`wechat_mp_tools.spec` 与 `.github/workflows/build.yml` 负责桌面打包和自动化。`backend/subtitle_remover/` 与 `injection_scripts/lib/` 是 vendored 代码，不是本文的阅读入口；`graphify-out/` 是外部分析输出，也不是第一方架构依据。
+本文面向需要维护、调试或扩展本工具的程序员。它以当前源码为准：`main.py` 与 `app.py` 是入口，`backend/` 提供 Flask 蓝图与领域服务，`frontend/` 是无构建步骤的哈希路由 SPA，`injection_scripts/src/` 只服务视频号页面自动化，`content_collect_workbench.spec` 与 `.github/workflows/build.yml` 负责桌面打包和自动化。`backend/subtitle_remover/` 与 `injection_scripts/lib/` 是 vendored 代码，不是本文的阅读入口；`graphify-out/` 是外部分析输出，也不是第一方架构依据。
 
 ## 架构视图
 
@@ -19,7 +19,7 @@
 | 架构文档与图表 | 15 | `docs/ARCHITECTURE.md`、`docs/diagrams/` | 学习、维护和沟通入口 |
 | 构建/CI/测试/Skill | 14 | `.github/workflows/build.yml`、`tests/`、`skills/ljt-repo-architect/` | 行为验证与自动化 |
 | 根目录配置与工具 | 6 | `README.md`、`BUILD.md`、`requirements.txt`、`scripts/verify_macos_bundle.py` | 使用说明、依赖和检查工具 |
-| PyInstaller spec | 1 | `wechat_mp_tools.spec` | 桌面打包单一定义 |
+| PyInstaller spec | 1 | `content_collect_workbench.spec` | 桌面打包单一定义 |
 
 这个分类只描述 Git 跟踪内容；用户本机 `data/`、`dist/`、`build/`、`__pycache__/` 和未跟踪的 `graphify-out/` 不属于发布库存。
 
@@ -89,10 +89,10 @@
 
 1. `main.py::ensure_virtualenv()` 在非 frozen 环境下优先切换本仓库 `venv312`。
 2. `main.py` 调 `multiprocessing.freeze_support()` 和 `backend/runtime.py::configure_runtime()`，避免 PyInstaller/Playwright 多进程问题。
-3. Windows 缺 WebView2 时，`main.py` 查找 `wechat_mp_tools.spec` 打包的 bootstrapper，可安装或降级浏览器模式。
+3. Windows 缺 WebView2 时，`main.py` 查找 `content_collect_workbench.spec` 打包的 bootstrapper，可安装或降级浏览器模式。
 4. `from app import app` 触发蓝图注册、`backend/account_pool.py` 保活线程启动、旧配置迁移和 `rss_scheduler.start()`。
 5. `main.py::start_flask()` 在 daemon thread 中监听 `127.0.0.1:5200-5220` 的可用端口，`wait_for_server()` 轮询 `/`。
-6. 成功后 pywebview 打开 SPA；失败时经 `backend/runtime.py::write_startup_error()` 写 `wechat_mp_tools.log`；窗口关闭回调停止 mitmproxy 并结束进程。
+6. 成功后 pywebview 打开 SPA；失败时经 `backend/runtime.py::write_startup_error()` 写 `content_collect_workbench.log`；窗口关闭回调停止 mitmproxy 并结束进程。
 
 ### 浏览器模式
 
@@ -138,7 +138,7 @@
 
 ## 存储与配置
 
-`backend/config.py` 在源码模式把 `DATA_DIR` 放在仓库根 `data/`；PyInstaller 后依赖 `backend/runtime.py::app_dir()`：macOS 使用 `~/Library/Application Support/WeChat MP Tools`，Windows/Linux 把数据放在可执行文件旁。`backend/runtime.py::log_file()` 统一返回启动日志路径。
+`backend/config.py` 在源码模式把 `DATA_DIR` 放在仓库根 `data/`；PyInstaller 后依赖 `backend/runtime.py::app_dir()`：macOS 使用 `~/Library/Application Support/Content Collect Workbench`，Windows/Linux 把数据放在可执行文件旁。`backend/runtime.py::log_file()` 统一返回启动日志路径。
 
 | 位置 | 内容 | 主要写入者 |
 |---|---|---|
@@ -160,9 +160,9 @@
 
 ## 构建与自动化
 
-`wechat_mp_tools.spec` 是 PyInstaller 单一定义：打包 `frontend/`、`injection_scripts/`，Full 构建额外打包 `ms-playwright/`，Windows Full 还包含 WebView2 bootstrapper；`collect_all("mitmproxy")` 补齐动态依赖；macOS 生成 `.app`，Windows 生成无控制台可执行目录。
+`content_collect_workbench.spec` 是 PyInstaller 单一定义：打包 `frontend/`、`injection_scripts/`，Full 构建额外打包 `ms-playwright/`，Windows Full 还包含 WebView2 bootstrapper；`collect_all("mitmproxy")` 补齐动态依赖；macOS 生成 `.app`，Windows 生成无控制台可执行目录。
 
-`.github/workflows/build.yml` 安装 Python 3.12 和 PyInstaller，为 Full 构建安装 Playwright Chromium，执行同一个 spec。当前流水线产出六个平台变体：Windows Full/Lite、macOS ARM64 Full/Lite、macOS x86_64 Full/Lite。macOS job 使用矩阵分别选择 `macos-latest`（ARM64）和 `macos-15-intel`（x86_64）原生 runner，先校验 `uname -m`，再为 Full/Lite 设置 `WECHAT_MP_TOOLS_TARGET_ARCH`；构建后运行 `scripts/verify_macos_bundle.py` 检查主程序与原生扩展，Full 构建还带 `--require-chromium` 强制确认内置 Chromium 的 Mach-O 架构，Lite 则不要求浏览器，最后用 ditto 打包并发布 artifact 或 tag release。也就是说，macOS 双架构不是通用二进制合并，而是 ARM64 与 x86_64 各自的可复测流水线。
+`.github/workflows/build.yml` 安装 Python 3.12 和 PyInstaller，为 Full 构建安装 Playwright Chromium，执行同一个 spec。当前流水线产出六个平台变体：Windows Full/Lite、macOS ARM64 Full/Lite、macOS x86_64 Full/Lite。macOS job 使用矩阵分别选择 `macos-latest`（ARM64）和 `macos-15-intel`（x86_64）原生 runner，先校验 `uname -m`，再为 Full/Lite 设置 `CONTENT_COLLECT_WORKBENCH_TARGET_ARCH`；构建后运行 `scripts/verify_macos_bundle.py` 检查主程序与原生扩展，Full 构建还带 `--require-chromium` 强制确认内置 Chromium 的 Mach-O 架构，Lite 则不要求浏览器，最后用 ditto 打包并发布 artifact 或 tag release。也就是说，macOS 双架构不是通用二进制合并，而是 ARM64 与 x86_64 各自的可复测流水线。
 
 ## 扩展路径
 
@@ -190,7 +190,7 @@
 
 | 症状 | 首先读 | 关键证据 |
 |---|---|---|
-| 桌面窗口白屏/无法启动 | `main.py`、`backend/runtime.py::log_file()` | `wechat_mp_tools.log`、端口 5200-5220 是否被占用、WebView2 状态 |
+| 桌面窗口白屏/无法启动 | `main.py`、`backend/runtime.py::log_file()` | `content_collect_workbench.log`、端口 5200-5220 是否被占用、WebView2 状态 |
 | 页面 404 或未知路由回登录页 | `frontend/index.html`、`frontend/js/router.js` | 组件 script 是否加载、`routes` key 是否存在 |
 | API 返回 HTML 而不是 JSON | `app.py::serve_static()`、对应蓝图 | URL 是否漏 `/api/` 前缀、浏览器 Network 响应类型 |
 | 认证失效或 401/429 | `backend/auth.py`、`backend/account_pool.py`、`backend/articles.py::_fetch_articles_page()` | `account_pool.json` 的 status/risk_hits/failures/last_error |
@@ -202,7 +202,7 @@
 | 抖音/快手签名或风控失败 | `backend/douyin_sign.py`、`backend/douyin.py`、`backend/kuaishou.py` | URL resolve 结果、API 响应体、Cookie 状态和任务日志 |
 | B 站音视频/字幕异常 | `backend/bilibili.py`、`backend/bilibili_sign.py` | view/playurl 返回、DASH 视频/音频 URL、ffmpeg 合并日志 |
 | 转码卡住或体积变大 | `backend/transcode.py` | `/status` 中实际编码策略、stderr 最后 500 字符、ffprobe 输出 |
-| 打包缺文件或浏览器不可用 | `wechat_mp_tools.spec`、`backend/runtime.py`、`.github/workflows/build.yml` | `frontend`/`injection_scripts`/`ms-playwright` 是否进入 datas、运行时 PATH 与 PLAYWRIGHT_BROWSERS_PATH |
+| 打包缺文件或浏览器不可用 | `content_collect_workbench.spec`、`backend/runtime.py`、`.github/workflows/build.yml` | `frontend`/`injection_scripts`/`ms-playwright` 是否进入 datas、运行时 PATH 与 PLAYWRIGHT_BROWSERS_PATH |
 | mac 包在错误架构机器上运行 | `scripts/verify_macos_bundle.py`、`.github/workflows/build.yml` | 主程序/扩展/Chromium 架构 gate、ARM64/x86_64 原生 job 产物 |
 
 调试原则：先确定请求已经到达哪一层，再看对应 JSON 状态文件；平台解析失败优先抓响应体，文件异常先看磁盘产物和 metadata，UI 状态异常再看 `frontend/js/api.js` 是否把错误吞掉或降级。

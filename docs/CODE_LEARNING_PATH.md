@@ -13,7 +13,7 @@
 - 新 contributor 先读 `main.py`、`app.py`、`frontend/js/router.js`、`frontend/js/api.js`，不要从 vendored 代码开始。
 - 功能开发者再读目标平台模块和 `backend/config.py`、`backend/runtime.py`。
 - 调试者优先定位症状到 UI、蓝图、共享服务、存储或打包层。
-- 架构调整者最后比较 `wechat_mp_tools.spec`、`.github/workflows/build.yml` 和 `docs/diagrams/build-flow.mmd`。
+- 架构调整者最后比较 `content_collect_workbench.spec`、`.github/workflows/build.yml` 和 `docs/diagrams/build-flow.mmd`。
 
 ## 练习 1：建立目录与组件地图
 
@@ -46,7 +46,7 @@ printf '%s\n' '--- runtime writable locations ---'
 grep -nE 'def (resource_dir|app_dir|log_file|configure_runtime)|Application Support|Path.sys.executable' backend/runtime.py
 ```
 
-**预期观察**：`main.py` 负责 frozen 适配、端口探测、Flask daemon thread、就绪轮询和 pywebview；`app.py` 负责蓝图、静态 SPA、RSS 启动和浏览器模式。`backend/runtime.py::app_dir()` 显示源码模式在仓库根，macOS frozen 模式在 `Application Support/WeChat MP Tools`，Windows frozen 模式在可执行文件旁。
+**预期观察**：`main.py` 负责 frozen 适配、端口探测、Flask daemon thread、就绪轮询和 pywebview；`app.py` 负责蓝图、静态 SPA、RSS 启动和浏览器模式。`backend/runtime.py::app_dir()` 显示源码模式在仓库根，macOS frozen 模式在 `Application Support/Content Collect Workbench`，Windows frozen 模式在可执行文件旁。
 
 可选本地验证（另开一个终端执行 curl）：
 
@@ -132,17 +132,17 @@ grep -nE 'eventbus|RateLimit|rateGate|finderGetFollowList|finderUserPage|sync-fe
 printf '%s\n' '--- transcode queue and ffmpeg policy ---'
 grep -nE 'job_queue|def start_worker|def _transcode_worker|def _execute_transcode|run_ffmpeg_cmd|VideoToolbox|libx264|libx265' backend/transcode.py
 printf '%s\n' '--- PyInstaller inputs ---'
-sed -n '1,60p' wechat_mp_tools.spec
-grep -nE 'Analysis\(|datas=|name=.WeChat MP Tools.|console=False' wechat_mp_tools.spec
+sed -n '1,60p' content_collect_workbench.spec
+grep -nE 'Analysis\(|datas=|name=.Content Collect Workbench.|console=False' content_collect_workbench.spec
 printf '%s\n' '--- workflow variants ---'
-grep -nE 'runs-on:|matrix:|pyinstaller_arch|platform_machine|WECHAT_MP_TOOLS_TARGET_ARCH|verify_macos_bundle|WECHAT_MP_TOOLS_BUNDLE_BROWSER|pyinstaller|codesign|ditto|artifact' .github/workflows/build.yml
+grep -nE 'runs-on:|matrix:|pyinstaller_arch|platform_machine|CONTENT_COLLECT_WORKBENCH_TARGET_ARCH|verify_macos_bundle|CONTENT_COLLECT_WORKBENCH_BUNDLE_BROWSER|pyinstaller|codesign|ditto|artifact' .github/workflows/build.yml
 printf '%s\n' '--- intended mac architecture branches ---'
 grep -nE 'macOS ARM64|macOS x86_64|architecture is (arm64|x86_64)|architecture check' docs/diagrams/build-flow.mmd
 printf '%s\n' '--- repository documentation tests ---'
 python3 -m pytest tests/test_architecture_docs.py tests/test_architecture_diagrams.py -q
 ```
 
-**预期观察**：`backend/transcode.py` 使用单 worker 队列避免并发 ffmpeg；macOS 可选 VideoToolbox，低码率源会强制 CRF 软编，输出变大时还有软件兜底压缩阶段。`wechat_mp_tools.spec` 至少包含 `frontend/` 与 `injection_scripts/`，Full 版包含 Playwright Chromium。workflow 当前产出 Windows Full/Lite、macOS ARM64 Full/Lite、macOS x86_64 Full/Lite；两个 macOS 架构都在原生 runner 上构建，并通过 `scripts/verify_macos_bundle.py` 检查主程序和原生扩展，Full 构建还以 `--require-chromium` 确认内置浏览器架构，Lite 构建不要求 Chromium。
+**预期观察**：`backend/transcode.py` 使用单 worker 队列避免并发 ffmpeg；macOS 可选 VideoToolbox，低码率源会强制 CRF 软编，输出变大时还有软件兜底压缩阶段。`content_collect_workbench.spec` 至少包含 `frontend/` 与 `injection_scripts/`，Full 版包含 Playwright Chromium。workflow 当前产出 Windows Full/Lite、macOS ARM64 Full/Lite、macOS x86_64 Full/Lite；两个 macOS 架构都在原生 runner 上构建，并通过 `scripts/verify_macos_bundle.py` 检查主程序和原生扩展，Full 构建还以 `--require-chromium` 确认内置浏览器架构，Lite 构建不要求 Chromium。
 
 ## 验收清单
 

@@ -59,12 +59,12 @@ def test_architecture_guide_describes_runtime_and_build_flows():
 
     runtime_claims = {
  "backend/runtime.py": "resource_dir/app_dir/log_file/configure_runtime",
-        "macOS": "Application Support/WeChat MP Tools",
+        "macOS": "Application Support/Content Collect Workbench",
         "Windows": "数据写在可执行文件旁",
         "backend/account_pool.py": "acquire/report/start_keepalive",
         "backend/rss_scheduler.py": "ThreadPoolExecutor/30 秒",
         "backend/transcode.py": "queue.Queue/单线程",
-        "wechat_mp_tools.spec": "PyInstaller",
+        "content_collect_workbench.spec": "PyInstaller",
         ".github/workflows/build.yml": "GitHub Actions",
         "macOS ARM64": "ARM64",
         "macOS x86_64": "x86_64",
@@ -110,7 +110,7 @@ def test_learning_path_names_exact_entry_points_and_debug_destinations():
         "frontend/js/router.js",
         "frontend/js/api.js",
         "injection_scripts/src/",
-        "wechat_mp_tools.spec",
+        "content_collect_workbench.spec",
         ".github/workflows/build.yml",
     )
     for path in required_paths:

@@ -7,4 +7,4 @@
 
 __version__ = "1.0.0"
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_NAME = "wechat-mp-tools"
+SERVER_NAME = "content-collect-workbench"

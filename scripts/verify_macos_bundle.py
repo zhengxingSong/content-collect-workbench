@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Supported architectures — keep in sync with wechat_mp_tools.spec
+# Supported architectures — keep in sync with content_collect_workbench.spec
 SUPPORTED_ARCHES = frozenset({"arm64", "x86_64"})
 
 # Injected process runner; default calls subprocess.run.

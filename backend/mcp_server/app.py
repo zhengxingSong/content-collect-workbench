@@ -17,7 +17,7 @@ from . import resources, tools
 
 
 def create_app() -> Flask:
-    app = Flask("wechat-mp-tools-mcp")
+    app = Flask("content-collect-workbench-mcp")
 
     def _rpc_error(req_id, code: int, message: str) -> dict:
         return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
@@ -101,12 +101,12 @@ def create_app() -> Flask:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="wechat-mp-tools MCP server (streamable HTTP)")
+    parser = argparse.ArgumentParser(description="content-collect-workbench MCP server (streamable HTTP)")
     parser.add_argument("--port", type=int, default=3333)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
 
-    port_env = os.environ.get("WECHAT_MP_TOOLS_URL")
+    port_env = os.environ.get("CONTENT_COLLECT_WORKBENCH_URL")
     print(f"[MCP] backend={port_env or 'http://127.0.0.1:5200'} listening={args.host}:{args.port}")
     app = create_app()
     app.run(host=args.host, port=args.port, threaded=True, debug=False)

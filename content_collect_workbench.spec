@@ -11,13 +11,13 @@ def macos_target_arch(value=None):
     if sys.platform != 'darwin':
         return None
     requested = (
-        value or os.environ.get('WECHAT_MP_TOOLS_TARGET_ARCH', '')
+        value or os.environ.get('CONTENT_COLLECT_WORKBENCH_TARGET_ARCH', '')
     ).strip().lower()
     if not requested:
         return None
     if requested not in {'arm64', 'x86_64'}:
         raise ValueError(
-            'WECHAT_MP_TOOLS_TARGET_ARCH must be arm64 or x86_64 on macOS'
+            'CONTENT_COLLECT_WORKBENCH_TARGET_ARCH must be arm64 or x86_64 on macOS'
         )
     return requested
 
@@ -29,7 +29,7 @@ datas = [
 ]
 
 playwright_browsers = os.path.join(project_root, 'ms-playwright')
-bundle_browser = os.environ.get('WECHAT_MP_TOOLS_BUNDLE_BROWSER', '1') != '0'
+bundle_browser = os.environ.get('CONTENT_COLLECT_WORKBENCH_BUNDLE_BROWSER', '1') != '0'
 if bundle_browser and os.path.isdir(playwright_browsers):
     datas.append((playwright_browsers, 'ms-playwright'))
 
@@ -197,7 +197,7 @@ if sys.platform == 'darwin':
         pyz,
         a.scripts,
         exclude_binaries=True,
-        name='WeChat MP Tools',
+        name='Content Collect Workbench',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -217,13 +217,13 @@ if sys.platform == 'darwin':
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='WeChat MP Tools.app',
-        bundle_identifier='com.wechat-mp.tools',
+        name='Content Collect Workbench.app',
+        bundle_identifier='com.content-collect.workbench',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',
-            'CFBundleName': 'WeChat MP Tools',
-            'CFBundleDisplayName': 'WeChat MP Tools',
+            'CFBundleName': 'Content Collect Workbench',
+            'CFBundleDisplayName': 'Content Collect Workbench',
         }
     )
 elif sys.platform == 'win32':
@@ -235,7 +235,7 @@ elif sys.platform == 'win32':
         a.scripts,
         [],
         exclude_binaries=True,
-        name='WeChat MP Tools',
+        name='Content Collect Workbench',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -256,7 +256,7 @@ elif sys.platform == 'win32':
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='WeChat MP Tools',
+        name='Content Collect Workbench',
     )
 else:
     # Linux 平台打包配置
@@ -265,7 +265,7 @@ else:
         a.scripts,
         [],
         exclude_binaries=True,
-        name='wechat_mp_tools',
+        name='content_collect_workbench',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -285,5 +285,5 @@ else:
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='wechat_mp_tools',
+        name='content_collect_workbench',
     )

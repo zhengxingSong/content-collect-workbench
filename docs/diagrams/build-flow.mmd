@@ -6,8 +6,8 @@ flowchart TD
 
     subgraph windows["Windows Path"]
         win_full["Windows Full<br/>bundle Chromium and WebView2 bootstrapper"]
-        win_lite["Windows Lite<br/>WECHAT_MP_TOOLS_BUNDLE_BROWSER=0"]
-        win_build["Run PyInstaller<br/>with wechat_mp_tools.spec"]
+        win_lite["Windows Lite<br/>CONTENT_COLLECT_WORKBENCH_BUNDLE_BROWSER=0"]
+        win_build["Run PyInstaller<br/>with content_collect_workbench.spec"]
         win_zip["Compress Full and Lite<br/>application directories"]
     end
 

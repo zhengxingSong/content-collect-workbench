@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "backend.mcp_server", "--port", "3333", "--host", "0.0.0.0"]
     environment:
-      - WECHAT_MP_TOOLS_URL=http://backend:5200
+      - CONTENT_COLLECT_WORKBENCH_URL=http://backend:5200
       - WMT_STATE_DIR=/app/state
     ports:
       - "127.0.0.1:3333:3333"

@@ -21,7 +21,7 @@ def resource_dir() -> Path:
 def app_dir() -> Path:
     """Return the writable directory for user data (config, logs, downloads).
 
-    On macOS (frozen), we use ~/Library/Application Support/WeChat MP Tools
+    On macOS (frozen), we use ~/Library/Application Support/Content Collect Workbench
     to avoid App Translocation read-only filesystem errors that occur when
     the .app is launched from a DMG or unsigned download location.
 
@@ -32,7 +32,7 @@ def app_dir() -> Path:
         if sys.platform == "darwin":
             # macOS: always use the standard Application Support directory.
             # This is writable regardless of App Translocation or Gatekeeper.
-            support = Path.home() / "Library" / "Application Support" / "WeChat MP Tools"
+            support = Path.home() / "Library" / "Application Support" / "Content Collect Workbench"
             support.mkdir(parents=True, exist_ok=True)
             return support
         # Windows / Linux: keep data next to the executable
@@ -41,7 +41,7 @@ def app_dir() -> Path:
 
 
 def log_file() -> Path:
-    return app_dir() / "wechat_mp_tools.log"
+    return app_dir() / "content_collect_workbench.log"
 
 
 def configure_runtime():

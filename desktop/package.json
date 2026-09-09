@@ -1,5 +1,5 @@
 {
-  "name": "wechat-mp-tools-desktop",
+  "name": "content-collect-workbench-desktop",
   "productName": "内容收集工作台",
   "version": "0.1.0",
   "description": "多来源数据收集平台桌面端：监督 Flask 后端与 MCP 服务",
@@ -17,7 +17,7 @@
     "onlyBuiltDependencies": ["electron", "esbuild"]
   },
   "build": {
-    "appId": "com.local.wechat-mp-tools",
+    "appId": "com.local.content-collect-workbench",
     "productName": "内容收集工作台",
     "directories": { "output": "release" },
     "files": ["main.js", "src/**/*", "package.json"],
