@@ -1,0 +1,65 @@
+/* views.css — 各视图专属布局 */
+.overview-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 1180px) { .overview-grid { grid-template-columns: 1fr; } }
+
+/* 实时吞吐图 */
+.chart-wrap { position: relative; }
+.chart-svg { display: block; width: 100%; height: 150px; }
+.chart-stats { display: flex; gap: 22px; margin-top: 14px; flex-wrap: wrap; }
+.chart-stat b { display: block; font-family: var(--mono); font-size: 17px; font-weight: 600; }
+.chart-stat span { font-size: 10.5px; color: var(--text-3); }
+
+/* 事件 ticker */
+.ticker { overflow: hidden; border-bottom: 1px solid var(--line); padding: 9px 0; }
+.ticker-track { display: flex; gap: 8px; width: max-content; animation: tick 36s linear infinite; padding-left: 20px; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@keyframes tick { to { transform: translateX(-50%); } }
+.tick { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; white-space: nowrap; }
+.tick .cdot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* 来源健康度行 */
+.src-row { display: flex; align-items: center; gap: 12px; padding: 10.5px 20px; border-bottom: 1px solid var(--line); transition: background .15s var(--ease); }
+.src-row:hover { background: rgba(255, 255, 255, .025); }
+.src-row:last-child { border-bottom: 0; }
+.src-dot { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 700; font-size: 12px; color: var(--bg); flex: none; }
+.src-name { font-weight: 550; font-size: 13px; }
+.src-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.src-health { flex: 1; max-width: 130px; }
+.src-health .bar { margin-top: 5px; }
+
+/* 最近动态 */
+.feed { display: flex; flex-direction: column; }
+.feed-item { display: flex; gap: 12px; padding: 11px 20px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.feed-item:last-child { border-bottom: 0; }
+.feed-ico { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; flex: none; background: rgba(255, 255, 255, .05); color: var(--text-2); font-size: 12px; }
+.feed-ico.ok { background: var(--accent-soft); color: var(--accent); }
+.feed-ico.warn { background: var(--amber-soft); color: var(--amber); }
+.feed-ico.err { background: var(--rose-soft); color: var(--rose); }
+.feed-ico.sky { background: var(--sky-soft); color: var(--sky); }
+.feed-text { flex: 1; min-width: 0; color: var(--text-2); }
+.feed-text b { color: var(--text); font-weight: 600; }
+.feed-time { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+
+/* detect 输入反馈 */
+.detect-result { display: flex; align-items: center; gap: 10px; border: 1px dashed var(--accent-line); background: var(--accent-soft); border-radius: var(--radius-sm); padding: 10px 13px; font-size: 12.5px; margin-top: 10px; }
+.detect-result.none { border-color: var(--line-2); background: var(--surface-2); color: var(--text-3); }
+
+/* 服务面板 */
+.svc-head { display: flex; align-items: center; gap: 12px; padding: 15px 20px; border-bottom: 1px solid var(--line); }
+.svc-title { font-size: 14px; font-weight: 650; }
+.svc-url { font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+/* 设置 tabs */
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; overflow-x: auto; }
+.tab { font-size: 13px; color: var(--text-2); padding: 9px 15px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; transition: color .15s var(--ease), border-color .15s var(--ease); }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+/* 备份历史行 */
+.bk-row { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.bk-row:last-child { border-bottom: 0; }
+.bk-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--sky-soft); color: var(--sky); display: grid; place-items: center; flex: none; }
+.bk-ico svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* 类型徽标(内容类型) */
+.kind { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); background: rgba(255,255,255,.06); border-radius: 6px; padding: 3px 7px; }
