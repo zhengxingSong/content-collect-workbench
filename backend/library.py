@@ -78,13 +78,20 @@ def find_bilibili_entry(entry_id: str) -> Path | None:
     root = _bili_root()
     if not root.exists() or not entry_id:
         return None
+    best = None
+    best_score = -1
     for up_dir in root.iterdir():
         if not up_dir.is_dir():
             continue
         for video_dir in up_dir.iterdir():
             if video_dir.is_dir() and video_dir.name.endswith(f"_{entry_id}"):
-                return video_dir
-    return None
+                try:
+                    score = sum(1 for f in video_dir.rglob("*.mp4"))
+                except OSError:
+                    score = 0
+                if score > best_score:
+                    best, best_score = video_dir, score
+    return best
 
 
 def find_entry(entry_id: str) -> Path | None:
@@ -281,9 +288,23 @@ def list_entries(platform: str | None = None, date: str | None = None,
     if not platform or platform == "bilibili":
         bili_root = _bili_root()
         if bili_root.exists():
+            seen_bvid = {}
             for video_dir in sorted(bili_root.glob("*/*/")):
                 if not video_dir.is_dir():
                     continue
+                bvid = video_dir.name.rsplit("_", 1)[-1]
+                prev = seen_bvid.get(bvid)
+                if prev:
+                    # 同一 BV 多目录:保留文件更多的(更完整),避免分裂条目
+                    try:
+                        cur_n = sum(1 for f in video_dir.rglob("*.mp4"))
+                        prev_n = sum(1 for f in prev.rglob("*.mp4"))
+                        if cur_n <= prev_n:
+                            continue
+                    except OSError:
+                        continue
+                seen_bvid[bvid] = video_dir
+            for video_dir in seen_bvid.values():
                 meta = _bili_entry_meta(video_dir)
                 author = meta["author"].get("name") if isinstance(meta["author"], dict) else (meta["author"] or "")
                 if date and not str(meta.get("collect_time") or "").startswith(date):
