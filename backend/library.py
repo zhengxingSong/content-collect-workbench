@@ -42,8 +42,56 @@ def entry_id_for(platform: str, identity_key: str) -> str:
     return hashlib.sha256(f"{platform}|{identity_key}".encode("utf-8")).hexdigest()[:16]
 
 
+def _bili_root() -> Path:
+    """B站下载目录作为内容库第二库根（data/bilibili_downloads/<UP主>/<标题>_<bvid>/）。"""
+    data_dir = Path(os.environ.get("WMT_DATA_DIR") or (SCRIPT_DIR / "data"))
+    return data_dir / "bilibili_downloads"
+
+
+def _bili_entry_meta(video_dir: Path) -> dict:
+    """合成 B站条目元数据:优先读 metadata.json,缺失时从目录结构与文件系统推导。"""
+    meta = state_store.read_json(video_dir / "metadata.json") or {}
+    name = video_dir.name
+    bvid = name.rsplit("_", 1)[-1] if "_" in name else name
+    files = meta.get("files")
+    if not files:
+        files = [{"path": f.relative_to(video_dir).as_posix(), "size": f.stat().st_size}
+                 for f in sorted(video_dir.rglob("*")) if f.is_file()]
+    author = meta.get("author") or {"name": video_dir.parent.name}
+    collect_time = meta.get("collect_time") or time.strftime(
+        "%Y-%m-%dT%H:%M:%S", time.localtime(video_dir.stat().st_mtime))
+    return {
+        "id": meta.get("id") or bvid,
+        "bvid": bvid,
+        "title": meta.get("title") or name,
+        "author": author,
+        "content_type": "video",
+        "collect_time": collect_time,
+        "publish_time": meta.get("publish_time"),
+        "collection_status": meta.get("collection_status") or "complete",
+        "files": files,
+        "canonical_url": f"https://www.bilibili.com/video/{bvid}",
+    }
+
+
+def find_bilibili_entry(entry_id: str) -> Path | None:
+    root = _bili_root()
+    if not root.exists() or not entry_id:
+        return None
+    for up_dir in root.iterdir():
+        if not up_dir.is_dir():
+            continue
+        for video_dir in up_dir.iterdir():
+            if video_dir.is_dir() and video_dir.name.endswith(f"_{entry_id}"):
+                return video_dir
+    return None
+
+
 def find_entry(entry_id: str) -> Path | None:
     """按 entry_id 定位条目目录（内容库只暴露已提交条目，见 §10.4）。"""
+    bili_dir = find_bilibili_entry(entry_id)
+    if bili_dir:
+        return bili_dir
     if not re.fullmatch(r"[0-9a-f]{16}", entry_id):
         return None
     for platform_dir in LIBRARY_DIR.iterdir() if LIBRARY_DIR.exists() else []:
@@ -229,6 +277,30 @@ def list_entries(platform: str | None = None, date: str | None = None,
                     "failed_media_count": len(meta.get("failed_items") or []),
                     "warning_count": len(meta.get("warnings") or []),
                 })
+    # ── B站下载目录(第二库根):合成条目并参与平台/日期/搜索过滤 ──
+    if not platform or platform == "bilibili":
+        bili_root = _bili_root()
+        if bili_root.exists():
+            for video_dir in sorted(bili_root.glob("*/*/")):
+                if not video_dir.is_dir():
+                    continue
+                meta = _bili_entry_meta(video_dir)
+                author = meta["author"].get("name") if isinstance(meta["author"], dict) else (meta["author"] or "")
+                if date and not str(meta.get("collect_time") or "").startswith(date):
+                    continue
+                if query_lower and query_lower not in f"{meta.get('title') or ''} {author or ''}".casefold():
+                    continue
+                files = meta.get("files") or []
+                media_files = [f for f in files if str(f.get("path", "")).startswith("media/")]
+                out.append({
+                    "id": meta["id"], "platform": "bilibili",
+                    "title": meta["title"], "author": author,
+                    "publish_time": meta.get("publish_time"), "collect_time": meta.get("collect_time"),
+                    "collection_status": meta.get("collection_status"), "dir": str(video_dir),
+                    "file_count": len(files), "media_count": len(media_files),
+                    "total_bytes": sum(int(f.get("size") or 0) for f in files),
+                    "failed_media_count": 0, "warning_count": 0,
+                })
     out.sort(key=lambda e: e.get("collect_time") or "", reverse=True)
     if page is None and not query_lower:
         return out
@@ -244,6 +316,13 @@ def get_entry(entry_id: str) -> dict | None:
     if not entry_dir:
         return None
     meta = state_store.read_json(entry_dir / "metadata.json") or {}
+    if not meta:
+        # B站下载目录:合成元数据(视频条目无正文,完整性按文件存在性计)
+        meta = _bili_entry_meta(entry_dir)
+        meta["integrity"] = {"status": "complete", "file_count": len(meta.get("files") or []),
+                             "ok_count": len(meta.get("files") or [])}
+        meta["dir"] = str(entry_dir)
+        return meta
     meta["dir"] = str(entry_dir)
     meta["integrity"] = check_entry_integrity(entry_dir, meta)
     return meta

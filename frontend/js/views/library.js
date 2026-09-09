@@ -29,6 +29,8 @@ const LibraryPage = {
       this.all = []; this.loaded = true; this.error = err.message;
       UI.toast('内容库加载失败', err.message, 'err');
     }
+    this.renderPlatformFilters();
+    this.renderIntegrityFilters();
     this.renderTable();
   },
 
@@ -261,11 +263,19 @@ const LibraryPage = {
       <button class="btn" data-close>关闭</button>
       <button class="btn" id="mOpenDir">打开目录</button>
       <button class="btn" id="mFiles">资源文件</button>
-      <button class="btn" id="mPreview">阅读视图</button>
+      ${e.platform !== 'bilibili' ? '<button class="btn" id="mPreview">阅读视图</button>' : ''}
       <button class="btn primary" id="mExport" ${e.collection_status === 'corrupt' ? 'disabled' : ''}>导出此条</button>`;
     overlay.querySelector('#mOpenDir').addEventListener('click', () => { this.openFolder(id); });
     overlay.querySelector('#mFiles').addEventListener('click', () => { close(); this.filesBrowser(id); });
-    overlay.querySelector('#mPreview').addEventListener('click', () => window.open(API.library.previewUrl(id), '_blank'));
+    const mp = overlay.querySelector('#mPreview');
+    if (mp) mp.addEventListener('click', () => window.open(API.library.previewUrl(id), '_blank'));
+    if (e.canonical_url) {
+      const src = footEl.querySelector('#mOpenDir');
+      const a = document.createElement('button');
+      a.className = 'btn'; a.textContent = '原址';
+      a.addEventListener('click', () => window.open(e.canonical_url, '_blank'));
+      src ? src.before(a) : footEl.prepend(a);
+    }
     overlay.querySelector('#mExport').addEventListener('click', async () => {
       try {
         const r = await API.library.exportEntries([id], `data/exports/${id}.zip`);

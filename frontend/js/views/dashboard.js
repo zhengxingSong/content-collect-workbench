@@ -172,7 +172,11 @@ const DashboardPage = {
       try { const st = await API.auth[id].status(); setSub(id, pillOf(st.status === 'success', st.status === 'success' ? '已登录' : '未登录(可采集公开内容)')); } catch (e) { setSub(id, pillOf(false, '探测失败')); }
     }
     try { const st = await API.auth.xhs.status(); const ls = st.login_state || {}; const on = ls.status === 'success' || st.logged_in; setSub('xhs', pillOf(on, on ? '已登录' : '未登录')); } catch (e) { setSub('xhs', pillOf(false, '探测失败')); }
-    try { const pr = await API.progress.bilibili(); setSub('bilibili', pr.status === 'running' ? pillOf(true, '下载进行中') : pillOf(true, '就绪(扫码登录已支持)')); } catch (e) { setSub('bilibili', pillOf(false, '探测失败')); }
+    try {
+      const st = await API.auth.bilibili.status();
+      const name = st.account_info ? (st.account_info.uname || st.account_info.nickname || '') : '';
+      setSub('bilibili', st.logged_in ? pillOf(true, `已登录${name ? ' · ' + name : ''}`) : pillOf(false, '未登录(扫码登录已支持)'));
+    } catch (e) { setSub('bilibili', pillOf(false, '探测失败')); }
   },
 
   onShow() { /* 图表定时器已在 render 中持续运行 */ },
