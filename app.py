@@ -181,6 +181,18 @@ def get_settings():
     return jsonify(_get())
 
 
+@app.route("/api/local/token", methods=["GET"])
+def local_token():
+    """返回本机服务令牌,供 SPA 附到后续请求(本地单用户工具;仅本机 Host 可达)。"""
+    from backend.core import state_store
+    from backend.security import _host_ok
+    from flask import jsonify
+    if not _host_ok():
+        return jsonify({"error": "非本机请求"}), 403
+    tok = state_store.load_service_token()
+    return jsonify({"token": tok or "", "ok": bool(tok)})
+
+
 @app.route("/api/settings", methods=["POST"])
 def save_settings():
     from backend.config import get_settings as _get, save_settings as _save

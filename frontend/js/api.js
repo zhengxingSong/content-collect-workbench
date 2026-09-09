@@ -11,6 +11,7 @@ const API = (() => {
     lastProbe: 0,             // 最近一次成功真实请求时间
     probes: [],               // 探测记录 {name, ok, detail}
     listeners: [],
+    token: '',
   };
 
   function notify() { state.listeners.forEach(fn => { try { fn(state.mode); } catch (e) { /* noop */ } }); }
@@ -20,10 +21,16 @@ const API = (() => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), opts.timeout || TIMEOUT);
     try {
-      const resp = await fetch(url, { ...opts, signal: ctl.signal, headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+      const authHd = state.token ? { 'Authorization': `Bearer ${state.token}` } : {};
+      const resp = await fetch(url, { ...opts, signal: ctl.signal, headers: { 'Content-Type': 'application/json', ...authHd, ...(opts.headers || {}) } });
       const text = await resp.text();
       let data; try { data = JSON.parse(text); } catch { throw new Error(`非 JSON 响应 (HTTP ${resp.status})`); }
-      if (!resp.ok) throw new Error(data.error || data.message || `HTTP ${resp.status}`);
+      if (!resp.ok) {
+        // 后端错误是 {error:{code,message}} 对象,取可读 message(避免 [object Object])
+        const em = data && data.error && (data.error.message || data.error.code);
+        const msg = em || (data && data.message) || (data && data.summary) || `HTTP ${resp.status}`;
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      }
       return data;
     } finally { clearTimeout(timer); }
   }
@@ -80,6 +87,7 @@ const API = (() => {
 
     // ── 探测 ──
     async probe() {
+      try { state.token = (await raw('/api/local/token', { timeout: 1800 })).token || ''; } catch (e) { state.token = ''; }
       try { await raw('/api/settings', { timeout: 1800 }); state.mode = 'live'; state.lastProbe = Date.now(); }
       catch (err) { state.mode = 'mock'; }
       state.probes.push({ name: 'probe', ok: state.mode === 'live', detail: state.mode === 'live' ? '/api/settings 200' : '后端不可达,演示数据模式' });
