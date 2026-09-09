@@ -125,6 +125,62 @@ def restore_library_backup():
         return jsonify(fail(e)), 400
 
 
+def _preview_video_page(entry_id: str, entry_dir):
+    """视频/音频条目预览页:内嵌播放器 + 逐文件下载链接,零脚本。"""
+    import html as html_mod
+    meta = library.get_entry(entry_id) or {}
+    title = meta.get("title") or entry_dir.name
+    files = meta.get("files") or []
+    media = [f for f in files if str(f.get("path", "")).lower().endswith((".mp4", ".webm", ".mp3", ".m4a"))]
+    others = [f for f in files if f not in media]
+    if not media:
+        return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, "无可预览内容"))), 404
+
+    def furl(p):
+        return f"/api/library/entries/{entry_id}/file?path={urllib.parse.quote(p)}"
+
+    def fmt_size(n):
+        n = int(n or 0)
+        return f"{n / 1073741824:.2f} GB" if n > 1073741824 else f"{n / 1048576:.1f} MB"
+
+    parts = []
+    for f in media:
+        p = f["path"]
+        is_audio = p.lower().endswith((".mp3", ".m4a"))
+        tag = "audio" if is_audio else "video"
+        parts.append(f"""
+        <section style="margin:0 0 26px">
+          <h3 style="font-size:15px;margin:0 0 8px">{html_mod.escape(p.rsplit('/', 1)[-1])}
+            <span style="color:#888;font-weight:400;font-size:12px"> · {fmt_size(f.get('size'))}</span></h3>
+          <{tag} controls preload="metadata" style="width:100%;max-width:960px;border-radius:10px;background:#000"
+            src="{furl(p)}"></{tag}>
+          <div style="margin-top:6px"><a style="color:#2dd98a" href="{furl(p)}" download>下载此文件</a></div>
+        </section>""")
+    if others:
+        lis = "".join(
+            f'<li><a style="color:#2dd98a" href="{furl(f["path"])}" download>{html_mod.escape(f["path"])}</a>'
+            f' <span style="color:#888">({fmt_size(f.get("size"))})</span></li>' for f in others)
+        parts.append(f'<section><h3 style="font-size:14px">其他文件({len(others)})</h3><ul style="line-height:1.9">{lis}</ul></section>')
+
+    page = f"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{html_mod.escape(title)}</title></head>
+    <body style="margin:0;background:#0b0e14;color:#e9ecf2;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
+    <div style="max-width:980px;margin:0 auto;padding:28px 20px 60px">
+      <h1 style="font-size:20px;line-height:1.45;margin:0 0 6px">{html_mod.escape(title)}</h1>
+      <div style="color:#888;font-size:12.5px;margin-bottom:24px">
+        {html_mod.escape((meta.get('author') or {}).get('name', '') if isinstance(meta.get('author'), dict) else str(meta.get('author') or ''))}
+        · 共 {len(media)} 个媒体文件 · {len(files)} 个文件
+        {f" · <a style='color:#2dd98a' href='https://www.bilibili.com/video/{meta.get('bvid')}' target='_blank' rel='noopener'>原址</a>" if meta.get('bvid') else ''}
+      </div>
+      {''.join(parts)}
+    </div></body></html>"""
+    from flask import Response
+    return Response(page, mimetype="text/html",
+                    headers={"Content-Security-Policy": "default-src 'none'; media-src 'self'; img-src 'self'; style-src 'unsafe-inline'; sandbox allow-same-origin",
+                             "X-Content-Type-Options": "nosniff"})
+
+
 @library_bp.route("/entries/<entry_id>/preview", methods=["GET"])
 @local_access_required
 def preview_entry(entry_id):
@@ -148,7 +204,7 @@ def preview_entry(entry_id):
             is_md = cand.endswith(".md")
             break
     if body is None:
-        return jsonify(fail(CollectError(ErrorCode.NOT_FOUND, "无可预览正文"))), 404
+        return _preview_video_page(entry_id, entry_dir)
 
     # 远程图片 → 本地文件（含 HTML 转义形态 &amp;）
     for f in meta.get("files", []):
@@ -363,14 +419,41 @@ def serve_file(entry_id):
         abort(404)
     rel = request.args.get("path", "")
     meta = state_store.read_json(entry_dir / "metadata.json") or {}
+    if not meta.get("files"):
+        # B站等平台下载目录无 metadata.json:用合成条目(目录扫描)作为白名单
+        meta = library.get_entry(entry_id) or {}
     allowed = {f["path"] for f in meta.get("files", [])}
     if rel not in allowed:
         abort(403)
     file_path = entry_dir / rel
-    data = file_path.read_bytes()
-    mime = next((f["mime"] for f in meta["files"] if f["path"] == rel), "application/octet-stream")
+    mime = next((f.get("mime") for f in meta.get("files", []) if f.get("path") == rel), None)
+    if not mime:
+        import mimetypes
+        mime = mimetypes.guess_type(rel)[0] or "application/octet-stream"
     if rel.endswith(".md"):
         mime = "text/markdown"
+    try:
+        data = file_path.read_bytes()
+    except FileNotFoundError:
+        abort(404)
+    # Range 支持:浏览器拖动进度条/按需加载必须(大视频不全量进内存响应)
+    range_header = request.headers.get("Range")
+    if range_header and mime.startswith(("video/", "audio/")):
+        import re as _re
+        m = _re.match(r"bytes=(\d*)-(\d*)$", range_header)
+        if m:
+            total = len(data)
+            start = int(m.group(1)) if m.group(1) else 0
+            end = int(m.group(2)) if m.group(2) else min(start + 4 * 1048576, total - 1)
+            end = min(end, total - 1)
+            if start > end or start >= total:
+                return Response(status=416, headers={"Content-Range": f"bytes */{total}"})
+            chunk = data[start:end + 1]
+            return Response(chunk, status=206, mimetype=mime, headers={
+                "Content-Range": f"bytes {start}-{end}/{total}",
+                "Accept-Ranges": "bytes",
+                "X-Content-Type-Options": "nosniff"})
     return Response(data, mimetype=mime,
-                    headers={"Content-Security-Policy": "default-src 'none'; sandbox",
+                    headers={"Accept-Ranges": "bytes",
+                             "Content-Security-Policy": "default-src 'none'; sandbox",
                              "X-Content-Type-Options": "nosniff"})

@@ -263,7 +263,7 @@ const LibraryPage = {
       <button class="btn" data-close>关闭</button>
       <button class="btn" id="mOpenDir">打开目录</button>
       <button class="btn" id="mFiles">资源文件</button>
-      ${e.platform !== 'bilibili' ? '<button class="btn" id="mPreview">阅读视图</button>' : ''}
+      <button class="btn" id="mPreview">${e.platform === 'bilibili' ? '播放预览' : '阅读视图'}</button>
       <button class="btn primary" id="mExport" ${e.collection_status === 'corrupt' ? 'disabled' : ''}>导出此条</button>`;
     overlay.querySelector('#mOpenDir').addEventListener('click', () => { this.openFolder(id); });
     overlay.querySelector('#mFiles').addEventListener('click', () => { close(); this.filesBrowser(id); });

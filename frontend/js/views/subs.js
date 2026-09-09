@@ -168,7 +168,7 @@ const SubsPage = {
         const season = +v.season_id ? ' <span class="badge" title="所属合集">合集</span>' : '';
         return `<tr>
           <td><input type="checkbox" class="checkbox" data-bvid="${UI.esc(v.bvid)}" data-title="${UI.esc(v.title || '')}" ${this.biliSelected.has(v.bvid) ? 'checked' : ''}></td>
-          <td><a href="https://www.bilibili.com/video/${UI.esc(v.bvid)}" target="_blank" rel="noopener"><img src="${UI.esc(v.pic || '')}" style="width:104px;height:64px;object-fit:cover;border-radius:8px" loading="lazy" onerror="this.style.opacity=.25"></a></td>
+          <td><a href="https://www.bilibili.com/video/${UI.esc(v.bvid)}" target="_blank" rel="noopener"><img src="${UI.esc(v.pic || '')}" referrerpolicy="no-referrer" style="width:104px;height:64px;object-fit:cover;border-radius:8px;background:#1a2030" loading="lazy" onerror="this.style.visibility='hidden'"></a></td>
           <td class="td-title" style="max-width:420px;white-space:normal">
             <a href="https://www.bilibili.com/video/${UI.esc(v.bvid)}" target="_blank" rel="noopener" style="color:var(--text);border-bottom:1px dashed var(--line-2)">${UI.esc(v.title || v.bvid)}</a>${season}
             <div class="td-sub mono">${UI.esc(v.bvid)}</div></td>
