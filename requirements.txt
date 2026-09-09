@@ -20,3 +20,6 @@ typing-extensions==4.14.0
 
 beautifulsoup4>=4.12
 markdown>=3.5
+
+# 登录二维码本地渲染(SVG)
+segno>=1.5

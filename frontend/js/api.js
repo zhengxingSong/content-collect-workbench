@@ -48,6 +48,22 @@ const API = (() => {
     state, onMode,
     get probes() { return state.probes; },
 
+    /**
+     * 动作型请求(live 模式直接调真实端点,失败抛错;demo 模式返回 mock)
+     * 用于下载提交/登录发起等"必须区分真实成败"的操作
+     */
+    async act(name, url, opts, mock) {
+      if (state.mode !== 'live') return typeof mock === 'function' ? mock() : { ...mock, mock: true };
+      try {
+        const data = await raw(url, opts);
+        state.probes.push({ name, ok: true, detail: url });
+        return data;
+      } catch (err) {
+        state.probes.push({ name, ok: false, detail: `${url} → ${err.message}` });
+        throw err;
+      }
+    },
+
     // ── 探测 ──
     async probe() {
       try { await raw('/api/settings', { timeout: 1800 }); state.mode = 'live'; state.lastProbe = Date.now(); }
@@ -92,6 +108,62 @@ const API = (() => {
     backup: {
       list: () => Promise.resolve(Mock.backups),
       create: payload => Promise.resolve({ ok: true, id: `bk_${Date.now()}`, ...payload }),
+    },
+
+    // ── 各平台单条下载(按来源注册表路由;live 失败抛错,demo 走 mock) ──
+    downloadSingle: {
+      'wechat-mp':       urls => api.act('dl-mp',  '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
+      'rss':             urls => api.act('dl-rss', '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
+      'url':             urls => api.act('dl-url', '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
+      'douyin':          url  => api.act('dl-dy',  '/api/douyin/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, message: '下载成功' }),
+      'kuaishou':        url  => api.act('dl-ks',  '/api/kuaishou/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, message: '下载成功' }),
+      'bilibili':        url  => api.act('dl-bili','/api/bilibili/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, task_started: true, message: '下载已启动' }),
+      'xhs':             urls => api.act('dl-xhs', '/api/xhs/download', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `xhs_${Date.now()}`, count: urls.length }),
+      'wechat-channels': url  => api.act('dl-ch',  '/api/channels/download', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, message: '下载成功' }),
+    },
+
+    // ── 后台任务进度(轮询;GET 失败自动降级 mock) ──
+    progress: {
+      bilibili: () => call('prog-bili', '/api/bilibili/progress', {}, { status: 'idle' }),
+      xhs: id => call('prog-xhs', `/api/xhs/download-status/${id}`, {}, { status: 'done' }),
+    },
+
+    // ── 各平台认证(对照后端 auth blueprint) ──
+    auth: {
+      douyin: {
+        start:  () => api.act('au-dy',  '/api/douyin/auth/start',  { method: 'POST' }, { message: '已启动登录流程' }),
+        status: () => call('au-dy-s',   '/api/douyin/auth/status', {}, { status: 'idle', message: '演示模式' }),
+        cancel: () => api.act('au-dy-c','/api/douyin/auth/cancel', { method: 'POST' }, { message: '已取消' }),
+      },
+      kuaishou: {
+        start:  () => api.act('au-ks',  '/api/kuaishou/auth/start',  { method: 'POST' }, { message: '已启动登录流程' }),
+        status: () => call('au-ks-s',   '/api/kuaishou/auth/status', {}, { status: 'idle', message: '演示模式' }),
+        cancel: () => api.act('au-ks-c','/api/kuaishou/auth/cancel', { method: 'POST' }, { message: '已取消' }),
+      },
+      xhs: {
+        start:  () => api.act('au-xhs',   '/api/xhs-auth/login',  { method: 'POST' }, { message: '已启动登录流程' }),
+        status: () => call('au-xhs-s',    '/api/xhs-auth/status', {}, { status: 'idle', message: '演示模式' }),
+        logout: () => api.act('au-xhs-o', '/api/xhs-auth/logout', { method: 'POST' }, { message: '已退出' }),
+      },
+      bilibili: {
+        qrGenerate: () => api.act('au-bili', '/api/bilibili-auth/qrcode/generate', {}, { url: 'demo://qr', qrcode_key: 'demo' }),
+        qrSvg: data => `/api/bilibili-auth/qrcode/svg?data=${encodeURIComponent(data)}`,
+        poll: key => api.act('au-bili-p', '/api/bilibili-auth/qrcode/poll', { method: 'POST', body: JSON.stringify({ qrcode_key: key }) }, { status: 'not_scanned' }),
+        logout: () => api.act('au-bili-o', '/api/bilibili-auth/logout', { method: 'POST' }, { message: '已退出' }),
+      },
+      wechatChannels: {
+        cookieStart:  () => api.act('au-ch',  '/api/channels/start_cookie_acquisition', { method: 'POST' }, { message: '已启动 Cookie 获取' }),
+        cookieStatus: () => call('au-ch-s',   '/api/channels/cookie_acquisition_status', {}, { status: 'idle', message: '演示模式' }),
+        proxyStatus:  () => call('au-ch-p',   '/api/channels/proxy/status', {}, { running: false }),
+        proxyStart:   () => api.act('au-ch-p1','/api/channels/proxy/start', { method: 'POST' }, { message: '代理已启动' }),
+        installCert:  () => api.act('au-ch-c','/api/channels/proxy/install-cert', { method: 'POST' }, { message: '证书已安装' }),
+      },
+      mpAdmin: {
+        status: () => call('au-mp-s',  '/api/mp-admin/status', {}, { logged_in: false, message: '演示模式' }),
+        login:  () => api.act('au-mp',  '/api/mp-admin/login', { method: 'POST' }, { message: '已启动扫码' }),
+        cancel: () => api.act('au-mp-c','/api/mp-admin/cancel', { method: 'POST' }, { message: '已取消' }),
+        logout: () => api.act('au-mp-o','/api/mp-admin/logout', { method: 'POST' }, { message: '已退出' }),
+      },
     },
   };
   return api;

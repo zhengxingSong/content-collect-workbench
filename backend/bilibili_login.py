@@ -249,3 +249,22 @@ def logout():
         _bili_cache["last_check"] = 0.0
         
     return jsonify({"message": "退出成功"})
+
+
+@bilibili_login_bp.route("/qrcode/svg", methods=["GET"])
+def qrcode_svg():
+    """本地渲染登录二维码为 SVG(segno),避免将登录 URL 发给第三方 QR 服务"""
+    data = (request.args.get("data") or "").strip()
+    if not data:
+        return jsonify({"error": "缺少 data 参数"}), 400
+    try:
+        import io
+
+        import segno
+        from flask import Response
+
+        buf = io.BytesIO()
+        segno.make(data, error="m").save(buf, kind="svg", border=2, scale=4)
+        return Response(buf.getvalue(), mimetype="image/svg+xml")
+    except Exception as e:
+        return jsonify({"error": f"二维码生成失败: {str(e)}"}), 500

@@ -21,12 +21,19 @@ const UI = (() => {
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, 3600);
   }
 
-  /** 打开内置 dialog;返回 close 函数。esc/背板关闭 */
-  function openModal(innerHTML, { wide = false } = {}) {
+  /** 打开内置 dialog;返回 close 函数。esc/背板关闭;onClose 用于清理轮询定时器 */
+  function openModal(innerHTML, { wide = false, onClose } = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'overlay open';
     overlay.innerHTML = `<div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${innerHTML}</div>`;
-    const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      if (onClose) { try { onClose(); } catch (e) { /* noop */ } }
+    };
     const onKey = e => { if (e.key === 'Escape') close(); };
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
     overlay.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', close));
@@ -37,6 +44,7 @@ const UI = (() => {
 
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /** 来源 pill(注册表驱动) */
   function sourcePill(id) {
@@ -74,5 +82,5 @@ const UI = (() => {
     return html;
   }
 
-  return { toast, openModal, esc, debounce, sourcePill, integrityPill, fmtTime, ago, pageBtns, ICONS };
+  return { toast, openModal, esc, debounce, sleep, sourcePill, integrityPill, fmtTime, ago, pageBtns, ICONS };
 })();

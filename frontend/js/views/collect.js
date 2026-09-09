@@ -116,18 +116,108 @@ const CollectPage = {
     ta.addEventListener('input', analyze);
     create.addEventListener('click', async () => {
       const urls = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
-      const first = SourceRegistry.detect(urls[0]);
-      const source = first && first.status === 'live' ? first.id : 'url';
-      // 真实联调:live 模式下真正调用后端 download-url;mock 模式仅本地演示
-      const resp = await API.tasks.create({ urls });
-      if (API.state.mode === 'live' && resp && resp.task_id) {
-        Mock.tasks.unshift({ id: resp.task_id, source, title: `真实任务 ${resp.task_id} · ${urls.length} 个链接`, status: 'running', done: 0, total: urls.length, speed: '…', eta: '已提交后端' });
-        UI.toast('任务已提交到后端', `${resp.task_id} · ${urls.length} 个链接`);
-      } else {
-        Mock.tasks.unshift({ id: `task_${Date.now()}`, source, title: `新建任务 · ${urls.length} 个链接`, status: 'running', done: 0, total: urls.length, speed: '…', eta: '排队中' });
-        UI.toast('任务已创建', `${urls.length} 个链接已入队(演示模式)`);
+      close();
+      if (!urls.length) return;
+      // 按来源注册表分组,分别路由到对应平台端点
+      const groups = {};
+      for (const u of urls) {
+        const s = SourceRegistry.detect(u);
+        const id = s && s.status === 'live' ? s.id : 'url';
+        (groups[id] = groups[id] || []).push(u);
       }
-      close(); this.renderTasks();
+      for (const [id, list] of Object.entries(groups)) {
+        const s = SourceRegistry.get(id);
+        try {
+          const resp = await API.downloadSingle[id](id === 'wechat-mp' || id === 'rss' || id === 'url' || id === 'xhs' ? list : list[0]);
+          if (resp && resp.mock) {
+            Mock.tasks.unshift({ id: `task_${Date.now()}_${id}`, source: id, title: `新建任务(${s.label}) · ${list.length} 个链接`, status: 'running', done: 0, total: list.length, speed: '…', eta: '排队中(演示)' });
+            UI.toast(`${s.label} 任务已创建(演示模式)`, `${list.length} 个链接已入队`, 'warn');
+          } else {
+            this.addLiveTask(id, list, resp);
+            UI.toast(`${s.label} 任务已提交到后端`, resp.message || `${list.length} 个链接`);
+          }
+        } catch (err) {
+          Mock.tasks.unshift({ id: `err_${Date.now()}_${id}`, source: id, title: `${s.label} · ${list[0].slice(0, 46)}`, status: 'failed', done: 0, total: 1, speed: '—', eta: '', error: err.message });
+          UI.toast(`${s.label} 提交失败`, err.message, 'err');
+        }
+      }
+      this.renderTasks();
     });
+  },
+
+  /** live 模式:按平台响应形态落任务行,并启动必要的进度轮询 */
+  addLiveTask(source, list, resp) {
+    const s = SourceRegistry.get(source);
+    const brief = list[0].replace(/^https?:\/\//, '').slice(0, 44);
+    if (source === 'bilibili' && resp && resp.task_started) {
+      // B站是全局单任务:progress 端点驱动
+      const row = { id: `bili_${Date.now()}`, source, title: `B站后台下载 · ${brief}`, status: 'running', done: 0, total: 1, speed: '—', eta: '后台任务', biliPoll: true };
+      Mock.tasks.unshift(row);
+      this.pollBili(row);
+    } else if (source === 'xhs' && resp && resp.task_id) {
+      const row = { id: resp.task_id, source, title: `小红书下载 · ${resp.count || list.length} 条 · ${brief}`, status: 'running', done: 0, total: resp.count || list.length, speed: '—', eta: '已提交', xhsPoll: true };
+      Mock.tasks.unshift(row);
+      this.pollXhs(row);
+    } else if (resp && resp.task_id && (source === 'wechat-mp' || source === 'rss' || source === 'url')) {
+      // 公众号通道:SSE/轮询 download-status
+      const row = { id: resp.task_id, source, title: `公众号下载 ${resp.task_id} · ${list.length} 篇`, status: 'running', done: 0, total: list.length, speed: '—', eta: '已提交', mpPoll: true };
+      Mock.tasks.unshift(row);
+      this.pollMp(row);
+    } else {
+      const title = (resp && (resp.title || (resp.data && resp.data.title))) || brief;
+      Mock.tasks.unshift({ id: `ok_${Date.now()}_${source}`, source, title: `${s.label} · ${title}`, status: 'done', done: 1, total: 1, speed: '—', eta: '已完成' });
+    }
+  },
+
+  /** B站全局任务进度轮询(/api/bilibili/progress) */
+  async pollBili(row) {
+    for (;;) {
+      await UI.sleep(2000);
+      const i = Mock.tasks.indexOf(row);
+      if (i === -1) return;
+      let p;
+      try { p = await API.progress.bilibili(); } catch { continue; }
+      if (p.mock) { row.status = 'running'; }
+      else if (p.status === 'running') {
+        row.status = 'running'; row.total = Math.max(1, p.total || 1); row.done = p.current_index || 0;
+        row.eta = p.current_title || ''; row.speed = `${p.current_percent || 0}%`;
+      } else if (p.status === 'completed') { row.status = 'done'; row.done = row.total; row.eta = ''; this.renderTasks(); return; }
+      else if (['failed', 'cancelled', 'idle'].includes(p.status)) { row.status = p.status === 'failed' ? 'failed' : 'canceled'; row.eta = p.status === 'idle' ? '无任务' : ''; this.renderTasks(); return; }
+      this.renderTasks();
+    }
+  },
+
+  /** 小红书任务进度轮询(/api/xhs/download-status/<id>) */
+  async pollXhs(row) {
+    for (;;) {
+      await UI.sleep(2200);
+      const i = Mock.tasks.indexOf(row);
+      if (i === -1) return;
+      let p;
+      try { p = await API.progress.xhs(row.id); } catch { continue; }
+      if (p.mock) { row.status = 'done'; row.done = row.total; this.renderTasks(); return; }
+      const st = String(p.status || '').toLowerCase();
+      if (['done', 'completed', 'success'].includes(st)) { row.status = 'done'; row.done = row.total; this.renderTasks(); return; }
+      if (['failed', 'error', 'cancelled', 'canceled'].includes(st)) { row.status = st.startsWith('fail') || st === 'error' ? 'failed' : 'canceled'; row.error = p.error || p.message || ''; this.renderTasks(); return; }
+      if (p.total) { row.total = p.total; row.done = p.completed || p.done || 0; }
+      this.renderTasks();
+    }
+  },
+
+  /** 公众号任务进度轮询(/api/articles/download-status/<id>) */
+  async pollMp(row) {
+    for (;;) {
+      await UI.sleep(2000);
+      const i = Mock.tasks.indexOf(row);
+      if (i === -1) return;
+      let p;
+      try { p = await fetch(`/api/articles/download-status/${row.id}`).then(r => r.json()); } catch { continue; }
+      if (p && p.status) {
+        if (p.status === 'completed') { row.status = 'done'; row.done = p.completed || row.total; row.total = p.total || row.total; this.renderTasks(); return; }
+        if (p.status === 'failed') { row.status = 'failed'; row.error = '下载失败'; this.renderTasks(); return; }
+        if (p.status === 'running') { row.total = p.total || row.total; row.done = p.completed || 0; row.eta = p.current || ''; }
+      }
+      this.renderTasks();
+    }
   },
 };

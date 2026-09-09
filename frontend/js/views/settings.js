@@ -66,14 +66,22 @@ const SettingsPage = {
           <div class="stat-line"><span class="k">登录态</span><span class="v">${hasPool ? '<span class="pill ok">有效</span>' : '<span class="pill">不适用</span>'}</span></div>
           ${hasPool ? `<div class="stat-line"><span class="k">账号池</span><span class="v">${(Mock.pools[id] || []).length} 个账号</span></div>` : ''}
           <div style="margin-top:14px;display:flex;gap:10px">
-            ${hasPool ? '<button class="btn" id="btnScanLogin">扫码登录</button><button class="btn" id="btnBrowserLogin">浏览器登录</button>' : ''}
+            ${hasPool ? `<button class="btn" id="btnScanLogin">${id === 'bilibili' ? '扫码登录' : '发起登录'}</button>${id !== 'wechat-mp' ? '<button class="btn" id="btnBrowserLogin">浏览器登录</button>' : ''}` : ''}
             <button class="btn danger" id="btnClearCred">清除该来源凭据</button>
           </div>
           <div class="hint" style="margin-top:10px">${UI.esc(s.desc)}</div>`;
-        const bind = (sid, msg) => { const b = document.getElementById(sid); if (b) b.addEventListener('click', () => UI.toast(msg, s.label)); };
-        bind('btnScanLogin', '二维码已生成,请使用对应 App 扫码');
-        bind('btnBrowserLogin', '浏览器会话窗口已打开');
-        bind('btnClearCred', '凭据清除请求已提交(需二次确认)');
+        const scanBtn = document.getElementById('btnScanLogin');
+        if (scanBtn) scanBtn.addEventListener('click', () => SourcesPage.authModal(id));
+        const browserBtn = document.getElementById('btnBrowserLogin');
+        if (browserBtn) browserBtn.addEventListener('click', () => SourcesPage.authModal(id));
+        const clearBtn = document.getElementById('btnClearCred');
+        if (clearBtn) clearBtn.addEventListener('click', async () => {
+          // 有 logout 端点的来源直接调用;其余进入来源管理流程
+          if (id === 'bilibili') { try { await API.auth.bilibili.logout(); UI.toast('已退出登录', s.label); return; } catch (e) { UI.toast('退出失败', e.message, 'err'); return; } }
+          if (id === 'xhs') { try { await API.auth.xhs.logout(); UI.toast('已退出登录', s.label); return; } catch (e) { UI.toast('退出失败', e.message, 'err'); return; } }
+          if (id === 'wechat-mp' || id === 'wechat-channels') return SourcesPage.authModal(id);
+          UI.toast('清除凭据', `${s.label}:请使用对应平台的登录窗口重新认证`);
+        });
       };
       let cred = live[0].id;
       document.getElementById('credSeg').addEventListener('click', e => {
