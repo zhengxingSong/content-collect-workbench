@@ -23,6 +23,9 @@ RUN (sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/deb
     && apt-get update
 
 # 依赖层（利用构建缓存）；apt 偶发 EOF 用重试兜底
+RUN apt-get install -y --no-install-recommends ffmpeg \
+    || (apt-get update && apt-get install -y --no-install-recommends ffmpeg)
+
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 RUN for i in 1 2 3 4 5; do \

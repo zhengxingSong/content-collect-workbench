@@ -144,6 +144,22 @@ const API = (() => {
       detect: url => api.act('detect', '/api/collect/detect-url', { method: 'POST', body: JSON.stringify({ url }) }, { platform: null, mock: true }),
     },
 
+    // ── 订阅与批量(组识别:UP主/主页/博主,真实端点) ──
+    subs: {
+      biliParse: url => api.act('sub-bp', '/api/bilibili/accounts/parse', { method: 'POST', body: JSON.stringify({ url }) }, { mid: '0', nickname: '演示UP主' }),
+      biliAccounts: () => api.liveGet('sub-ba', '/api/bilibili/accounts', () => ({ accounts: [], total: 0 })),
+      biliAdd: acc => api.act('sub-badd', '/api/bilibili/accounts', { method: 'POST', body: JSON.stringify(acc) }, { message: '已添加(演示)' }),
+      biliRemove: mid => api.act('sub-bdel', `/api/bilibili/accounts/${mid}`, { method: 'DELETE' }, { message: '已退订(演示)' }),
+      biliVideos: (mid, page = 1) => api.liveGet('sub-bv', `/api/bilibili/accounts/${mid}/videos?page=${page}`, () => ({ videos: [], total: 0 })),
+      biliBatch: items => api.act('sub-bb', '/api/bilibili/download-batch', { method: 'POST', body: JSON.stringify({ items }) }, { message: '批量下载已启动(演示)', task_started: true, mock: true }),
+      douyinUserDetail: url => api.act('sub-dud', `/api/douyin/user-detail?url=${encodeURIComponent(url)}`, {}, { sec_uid: '', mock: true }),
+      douyinDownloadUser: (secUid, types, maxPages) => api.act('sub-du', '/api/douyin/download-user', { method: 'POST', body: JSON.stringify({ sec_uid: secUid, types, max_pages: maxPages }) }, { message: '批量已启动(演示)', mock: true }),
+      ksProfile: (url, maxPages) => api.act('sub-kp', '/api/kuaishou/download-profile', { method: 'POST', body: JSON.stringify({ url, max_pages: maxPages }) }, { message: '主页批量已启动(演示)', mock: true }),
+      xhsParse: url => api.act('sub-xp', '/api/xhs/accounts/parse', { method: 'POST', body: JSON.stringify({ url }) }, { user_id: 'demo', nickname: '演示博主', mock: true }),
+      xhsNotes: uid => api.liveGet('sub-xn', `/api/xhs/accounts/${uid}/notes`, () => ({ notes: [] })),
+      xhsDownloadNotes: (notes, accountName) => api.act('sub-xd', '/api/xhs/download-notes', { method: 'POST', body: JSON.stringify({ notes, account_name: accountName }) }, { message: '笔记下载已启动(演示)', task_id: `xhs_${Date.now()}`, mock: true }),
+    },
+
     // ── 公众号收藏账号 + RSS 订阅(真实端点) ──
     accounts: {
       list: () => api.liveGet('acc', '/api/accounts', () => ({ accounts: [], total: 0 })),

@@ -19,6 +19,7 @@
       { view: 'dashboard', label: '总览', icon: 'dashboard', meta: { section: '工作台', title: '总览' } },
       { view: 'collect', label: '采集任务', icon: 'collect', meta: { section: '工作台', title: '采集任务' } },
       { view: 'library', label: '内容库', icon: 'library', meta: { section: '工作台', title: '内容库' } },
+      { view: 'subs', label: '订阅与批量', icon: 'sources', meta: { section: '工作台', title: '订阅与批量' } },
     ]},
     { group: '基础设施', items: [
       { view: 'sources', label: '采集源', icon: 'sources', meta: { section: '基础设施', title: '采集源' } },
@@ -32,7 +33,7 @@
 
   const VIEWS = {
     dashboard: DashboardPage, collect: CollectPage, library: LibraryPage,
-    sources: SourcesPage, services: ServicesPage, backup: BackupPage, settings: SettingsPage,
+    sources: SourcesPage, services: ServicesPage, backup: BackupPage, settings: SettingsPage, subs: SubsPage,
   };
 
   function buildShell() {
