@@ -183,7 +183,11 @@ def _preview_video_page(entry_id: str, entry_dir):
         lis = "".join(
             f'<li><a style="color:#2dd98a" href="{furl(f["path"])}" download>{html_mod.escape(f["path"])}</a>'
             f' <span style="color:#888">({fmt_size(f.get("size"))})</span></li>' for f in others)
-        others_html = f'<h3 style="font-size:13px;margin:22px 0 6px">其他文件({len(others)})</h3><ul style="line-height:1.9;margin:0;padding-left:18px;font-size:12.5px">{lis}</ul>'
+        others_html = (f'<details class="extra" style="margin-top:16px"><summary style="cursor:pointer;'
+                       f'color:#888;font-size:13px;user-select:none">辅助文件 '
+                       f'<span style="color:#6b7384">(字幕/封面等 {len(others)} 个,可下载)</span></summary>'
+                       f'<ul style="line-height:2;margin:8px 0 0;padding-left:4px;font-size:12px;'
+                       f'list-style:none;max-height:260px;overflow:auto">{lis}</ul></details>')
 
     author = (meta.get("author") or {}).get("name", "") if isinstance(meta.get("author"), dict) else str(meta.get("author") or "")
     orig = f' · <a style="color:#2dd98a" href="https://www.bilibili.com/video/{meta.get("bvid")}" target="_blank" rel="noopener">原址</a>' if meta.get("bvid") else ""
@@ -269,7 +273,7 @@ def _preview_video_page(entry_id: str, entry_dir):
 </body></html>"""
     from flask import Response
     return Response(page, mimetype="text/html",
-                    headers={"Content-Security-Policy": "default-src 'none'; media-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; sandbox allow-same-origin",
+                    headers={"Content-Security-Policy": "default-src 'none'; media-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; sandbox allow-same-origin allow-downloads",
                              "X-Content-Type-Options": "nosniff"})
 
 
