@@ -63,6 +63,25 @@ def export_entries():
     return jsonify(ok(f"导出完成 {result['exported']}/{len(entry_ids)}", result))
 
 
+@library_bp.route("/backup/list", methods=["GET"])
+def list_library_backups():
+    """列出本地备份文件(名称/大小/修改时间),供前端备份历史展示"""
+    import time as _time
+
+    from backend.config import DATA_DIR
+
+    bdir = DATA_DIR / "backups"
+    items = []
+    if bdir.is_dir():
+        for fp in sorted(bdir.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True):
+            st = fp.stat()
+            items.append({
+                "name": fp.name, "path": str(fp), "size": st.st_size,
+                "mtime": st.st_mtime, "mtime_h": _time.strftime("%Y-%m-%d %H:%M", _time.localtime(st.st_mtime)),
+            })
+    return jsonify(ok("备份列表", {"backups": items, "total": len(items)}))
+
+
 @library_bp.route("/backup", methods=["POST"])
 @local_access_required
 def backup_library():

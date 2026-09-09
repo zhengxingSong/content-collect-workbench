@@ -1,6 +1,6 @@
 /** 视图:备份恢复 — 4 步向导(预检→确认→执行→结果)· 历史 · 凭证不纳入备份 */
 const BackupPage = {
-  render(el) {
+  async render(el) {
     el.innerHTML = `
       <div class="view-head">
         <div><h1 class="view-title">备份与恢复</h1><div class="view-sub">整库原子备份 · 恢复时从 output 重建 dedup_index · 仅限 Web 人工操作,不接入 MCP</div></div>
@@ -34,7 +34,12 @@ const BackupPage = {
       </div>`;
 
     let type = 'full';
-    document.getElementById('bkEntries').textContent = Mock.entries.length;
+    if (API.state.mode === 'live') {
+      this.renderLiveStats();
+      this.renderLiveHistory();
+    } else {
+      document.getElementById('bkEntries').textContent = Mock.entries.length;
+    }
     document.getElementById('bkSeg').addEventListener('click', e => {
       const b = e.target.closest('[data-t]'); if (!b) return;
       type = b.dataset.t;
@@ -43,6 +48,7 @@ const BackupPage = {
     });
 
     const renderList = () => {
+      if (API.state.mode === 'live') return; // live 由 renderLiveHistory 渲染
       document.getElementById('bkList').innerHTML = Mock.backups.map(b => `
         <div class="bk-row">
           <div class="bk-ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
@@ -55,11 +61,39 @@ const BackupPage = {
     renderList();
     document.getElementById('bkList').addEventListener('click', e => {
       const b = e.target.closest('[data-restore]');
-      if (b) this.restoreModal(Mock.backups.find(x => x.id === b.dataset.restore));
+      if (b) this.restoreModal(b.dataset.path ? { name: b.dataset.name, path: b.dataset.path, date: b.dataset.date } : Mock.backups.find(x => x.id === b.dataset.restore));
     });
 
     document.getElementById('btnBackup').addEventListener('click', () => this.runWizard(type));
     document.getElementById('btnRestore').addEventListener('click', () => this.restoreModal(Mock.backups[0]));
+  },
+
+  async renderLiveStats() {
+    try {
+      const d = await API.library.list();
+      const x = document.getElementById('bkEntries');
+      if (x) x.textContent = d.total;
+    } catch (e) { const x = document.getElementById('bkEntries'); if (x) x.textContent = '—'; }
+  },
+
+  async renderLiveHistory() {
+    try {
+      const d = await API.library.backups.list();
+      const list = document.getElementById('bkList');
+      if (!list) return;
+      const items = d.backups || [];
+      list.innerHTML = items.length ? items.map(b => `
+        <div class="bk-row">
+          <div class="bk-ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
+          <div style="min-width:0;flex:1"><div style="font-weight:600" class="mono">${UI.esc(b.name)}</div>
+          <div class="td-sub mono">${UI.esc(b.mtime_h || '')} · ${(b.size / 1048576).toFixed(1)} MB</div></div>
+          <span class="pill ok">完成</span>
+          <button class="mini-btn" data-restore="1" data-path="${UI.esc(b.path)}" data-name="${UI.esc(b.name)}" data-date="${UI.esc(b.mtime_h || '')}">恢复</button>
+        </div>`).join('') : '<div class="empty">暂无备份 — 点击"开始备份"创建第一个</div>';
+    } catch (err) {
+      const list = document.getElementById('bkList');
+      if (list) list.innerHTML = `<div class="empty">备份历史加载失败:${UI.esc(err.message)}</div>`;
+    }
   },
 
   async runWizard(type) {
@@ -67,6 +101,23 @@ const BackupPage = {
     const btn = document.getElementById('btnBackup');
     btn.disabled = true;
     const spin = setInterval(() => { btn.lastChild.textContent = ' 执行中' + '.'.repeat(1 + (Date.now() / 400 | 0) % 3); }, 400);
+    if (API.state.mode === 'live') {
+      steps[0].classList.add('cur');
+      try {
+        const r = await API.library.backups.create();
+        steps.forEach(s => s.classList.remove('cur'));
+        steps.forEach(s => s.classList.add('done'));
+        const d = r.data || r;
+        UI.toast('备份完成', d && d.path ? d.path : '已写入 data/backups');
+      } catch (err) {
+        steps.forEach(s => s.classList.remove('cur'));
+        UI.toast('备份失败', err.message, 'err');
+      }
+      btn.disabled = false;
+      btn.lastChild.textContent = ' 开始备份';
+      this.renderLiveHistory();
+      return;
+    }
     for (let i = 0; i < steps.length; i++) {
       steps.forEach((s, j) => s.classList.toggle('cur', j === i));
       await API.backup.create({ type });
@@ -93,10 +144,26 @@ const BackupPage = {
       <div class="modal-foot"><button class="btn" data-close>取消</button><button class="btn danger" id="btnRestoreGo" disabled>确认恢复</button></div>`);
     const inp = overlay.querySelector('#restoreConfirm'), go = overlay.querySelector('#btnRestoreGo');
     inp.addEventListener('input', () => { go.disabled = inp.value.trim() !== 'RESTORE'; });
-    go.addEventListener('click', () => {
+    go.addEventListener('click', async () => {
+      if (API.state.mode === 'live') {
+        go.disabled = true; go.textContent = '校验中…';
+        try {
+          const v = await API.library.backups.validate(bk.path);
+          const vd = v.data || v;
+          if (vd && vd.valid === false) { UI.toast('校验未通过', vd.message || '备份文件不完整', 'err'); go.disabled = false; go.textContent = '确认恢复'; return; }
+          go.textContent = '恢复中…';
+          await API.library.backups.restore({ path: bk.path, confirm: true });
+          close();
+          UI.toast('恢复完成', '内容库已原子替换;dedup_index 已从 output 重建');
+        } catch (err) {
+          UI.toast('恢复失败', err.message, 'err');
+          go.disabled = false; go.textContent = '确认恢复';
+        }
+        return;
+      }
       close();
       UI.toast('恢复任务已启动', '校验 → 临时解压 → 原子替换 → 重建索引', 'warn');
-      setTimeout(() => UI.toast('恢复完成', `${bk.entries} 条内容已还原,请重新登录各来源账号`), 2200);
+      setTimeout(() => UI.toast('恢复完成', '演示流程结束'), 2200);
     });
   },
 };

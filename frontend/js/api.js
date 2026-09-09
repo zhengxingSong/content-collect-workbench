@@ -64,6 +64,20 @@ const API = (() => {
       }
     },
 
+    /**
+     * 真实数据 GET:live 模式失败抛错(视图显示空态/错误,绝不静默回退假数据);
+     * mock 模式返回兜底数据。返回体已拆包 {summary, data} → data
+     */
+    async liveGet(name, url, mock) {
+      if (state.mode !== 'live') {
+        const m = typeof mock === 'function' ? mock() : mock;
+        return m && m.data !== undefined ? m.data : m;
+      }
+      const resp = await raw(url);
+      state.probes.push({ name, ok: true, detail: url });
+      return resp && resp.data !== undefined ? resp.data : resp;
+    },
+
     // ── 探测 ──
     async probe() {
       try { await raw('/api/settings', { timeout: 1800 }); state.mode = 'live'; state.lastProbe = Date.now(); }
@@ -79,9 +93,57 @@ const API = (() => {
       save: patch => call('settings', '/api/settings', { method: 'POST', body: JSON.stringify(patch) }, ({ ok: true, ...patch })),
     },
 
-    // ── 内容库(P2 端点,当前固定 Mock) ──
+    // ── 内容库(真实端点 /api/library/*;mock 模式用演示数据映射成同形) ──
     library: {
-      list: (q = {}) => Promise.resolve({ entries: Mock.entries, total: Mock.entries.length, ...q }),
+      list: (params = {}) => api.liveGet('lib', `/api/library/entries?${new URLSearchParams({ page_size: 200, ...params })}`, () => ({
+        entries: Mock.entries.map(e => ({
+          id: e.id, title: e.title, author: e.author, platform: e.source,
+          collect_time: e.date.replace(' ', 'T') + ':00', publish_time: null,
+          collection_status: e.integrity, file_count: e.files.length,
+          media_count: e.files.filter(f => f.kind !== 'text').length,
+          failed_media_count: e.files.filter(f => f.sha !== 'ok').length,
+          warning_count: e.warnings.length, total_bytes: parseFloat(e.size) * 1048576 || 0,
+          dir: '', warnings: e.warnings, files: e.files,
+        })), total: Mock.entries.length, page: 1, page_size: 200, has_more: false,
+      })),
+      detail: id => api.liveGet('lib-d', `/api/library/entries/${id}`, () => {
+        const e = Mock.entries.find(x => x.id === id);
+        return { entry: e ? { ...e, platform: e.source, collection_status: e.integrity, collect_time: e.date, total_bytes: parseFloat(e.size) * 1048576 || 0, files: e.files.map(f => ({ path: f.name, kind: f.kind, status: f.sha, size: 0 })) } : null };
+      }),
+      exportEntries: (ids, dest) => api.act('lib-export', '/api/library/export', { method: 'POST', body: JSON.stringify({ entry_ids: ids, dest }) }, { exported: ids.length }),
+      openFolder: id => api.act('lib-dir', `/api/library/entries/${id}/open-folder`, { method: 'POST' }, { message: '已打开(演示)' }),
+      backups: {
+        list: () => api.liveGet('bk-list', '/api/library/backup/list', () => ({ backups: Mock.backups.map(b => ({ name: b.name + '.zip', path: b.id, size: 13762560000 * Math.random(), mtime_h: b.date, entries: b.entries, files: b.files, type: b.type })) })),
+        create: () => api.act('bk', '/api/library/backup', { method: 'POST', body: '{}' }, { mock: true }),
+        validate: path => api.act('bk-v', '/api/library/restore/validate', { method: 'POST', body: JSON.stringify({ path }) }, { valid: true, mock: true }),
+        restore: body => api.act('bk-r', '/api/library/restore', { method: 'POST', body: JSON.stringify(body) }, { mock: true }),
+      },
+    },
+
+    // ── 统一采集任务(真实端点 /api/collect/*) ──
+    collect: {
+      tasks: () => api.liveGet('tasks', '/api/collect/tasks', () => ({
+        tasks: Mock.tasks.map(t => ({
+          task_id: t.id, platform: t.source === 'wechat-mp' ? 'mp' : t.source, kind: 'collect',
+          status: t.status === 'running' ? 'running' : t.status === 'done' ? 'succeeded' : t.status === 'canceled' ? 'cancelled' : 'failed',
+          progress: { done: t.done, failed: 0, skipped: 0, total: t.total },
+          params: { urls: [t.title] }, error: t.error || null, created_at: Date.now() / 1000,
+        })),
+      })),
+      detail: id => api.liveGet('task', `/api/collect/tasks/${id}`, () => ({ task: null })),
+      createMp: (urls, idem) => api.act('collect-mp', '/api/collect/mp', { method: 'POST', body: JSON.stringify({ urls, idempotency_key: idem }) }, { task_id: `t_${Date.now()}`, status: 'running', mock: true }),
+      cancel: id => api.act('task-c', `/api/collect/tasks/${id}/cancel`, { method: 'POST' }, { message: '已取消(演示)' }),
+      retryFailed: id => api.act('task-r', `/api/collect/tasks/${id}/retry-failed`, { method: 'POST' }, { message: '已重试(演示)' }),
+      detect: url => api.act('detect', '/api/collect/detect-url', { method: 'POST', body: JSON.stringify({ url }) }, { platform: null, mock: true }),
+    },
+
+    // ── 公众号收藏账号 + RSS 订阅(真实端点) ──
+    accounts: {
+      list: () => api.liveGet('acc', '/api/accounts', () => ({ accounts: [], total: 0 })),
+      rss: () => api.liveGet('rss', '/api/rss/subscriptions', () => ({ subscriptions: Mock.rssSubs.map(r => ({ fakeid: r.fakeid, nickname: r.nickname, enabled: r.enabled, last_sync: r.last_sync, items: r.items })) })),
+      rssToggle: (fakeid, on) => on
+        ? api.act('rss-sub', '/api/rss/subscriptions', { method: 'POST', body: JSON.stringify({ fakeid, nickname: fakeid }) }, { ok: true })
+        : api.act('rss-unsub', `/api/rss/subscriptions/${fakeid}`, { method: 'DELETE' }, { ok: true }),
     },
 
     // ── 任务(真实: /api/articles/*;演示聚合) ──
@@ -112,9 +174,9 @@ const API = (() => {
 
     // ── 各平台单条下载(按来源注册表路由;live 失败抛错,demo 走 mock) ──
     downloadSingle: {
-      'wechat-mp':       urls => api.act('dl-mp',  '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
-      'rss':             urls => api.act('dl-rss', '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
-      'url':             urls => api.act('dl-url', '/api/articles/download-url', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `url_${Date.now()}` }),
+      'wechat-mp':       urls => api.act('dl-mp',  '/api/collect/mp', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `t_${Date.now()}` }).then(r => (r && r.data) || r),
+      'rss':             urls => api.act('dl-rss', '/api/collect/mp', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `t_${Date.now()}` }).then(r => (r && r.data) || r),
+      'url':             urls => api.act('dl-url', '/api/collect/mp', { method: 'POST', body: JSON.stringify({ urls }) }, { ok: true, task_id: `t_${Date.now()}` }).then(r => (r && r.data) || r),
       'douyin':          url  => api.act('dl-dy',  '/api/douyin/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, message: '下载成功' }),
       'kuaishou':        url  => api.act('dl-ks',  '/api/kuaishou/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, message: '下载成功' }),
       'bilibili':        url  => api.act('dl-bili','/api/bilibili/download-single', { method: 'POST', body: JSON.stringify({ url }) }, { ok: true, task_started: true, message: '下载已启动' }),

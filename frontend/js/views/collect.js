@@ -37,19 +37,10 @@ const CollectPage = {
       this.renderTasks();
     });
     this.renderTasks();
-    // 真实联调:live 模式下拉取真实下载历史,映射为任务行(与演示任务并存)
-    API.tasks.history().then(resp => {
-      const h = Array.isArray(resp) ? resp : resp && resp.history;
-      if (API.state.mode !== 'live' || !Array.isArray(h)) return;
-      this.liveTasks = h.slice(0, 20).map(x => ({
-        id: `h_${x.time}`, source: 'url',
-        title: x.title || x.link || '未命名任务',
-        status: x.success ? 'done' : 'failed',
-        done: 1, total: 1, speed: '—', eta: x.time ? UI.ago(new Date(x.time * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '',
-        live: true, error: x.error || '',
-      }));
-      this.renderTasks();
-    });
+    // 真实任务:统一采集队列 /api/collect/tasks,每 5s 刷新
+    this.refreshLiveTasks();
+    clearInterval(this.liveTimer);
+    this.liveTimer = setInterval(() => { if (API.state.mode === 'live' && document.getElementById('taskList')) this.refreshLiveTasks(); }, 5000);
     clearInterval(this.timer);
     // 演示进度推进仅在 mock 模式运行;live 模式的真实任务由各自 poller 驱动
     this.timer = setInterval(() => {
@@ -60,7 +51,7 @@ const CollectPage = {
         if (t.done < t.total && Math.random() > 0.5) { t.done++; changed = true; }
         if (t.done >= t.total) { t.status = 'done'; changed = true; }
       }
-      if (changed && this.current) this.renderTasks();
+      if (changed && document.getElementById('taskList')) this.renderTasks();
     }, 1500);
   },
 
@@ -153,10 +144,14 @@ const CollectPage = {
       for (const [id, list] of Object.entries(groups)) {
         const s = SourceRegistry.get(id);
         try {
-          const resp = await API.downloadSingle[id](id === 'wechat-mp' || id === 'rss' || id === 'url' || id === 'xhs' ? list : list[0]);
+          const resp = await API.downloadSingle[id](id === 'xhs' ? list : list[0]);
           if (resp && resp.mock) {
             Mock.tasks.unshift({ id: `task_${Date.now()}_${id}`, source: id, title: `新建任务(${s.label}) · ${list.length} 个链接`, status: 'running', done: 0, total: list.length, speed: '…', eta: '排队中(演示)' });
             UI.toast(`${s.label} 任务已创建(演示模式)`, `${list.length} 个链接已入队`, 'warn');
+          } else if (id === 'wechat-mp' || id === 'rss' || id === 'url') {
+            // 统一采集管道:任务持久化于 /api/collect/tasks
+            UI.toast(`${s.label} 任务已提交到后端`, resp.task_id || `${list.length} 个链接`);
+            setTimeout(() => this.refreshLiveTasks(), 800);
           } else {
             this.addLiveTask(id, list, resp);
             UI.toast(`${s.label} 任务已提交到后端`, resp.message || `${list.length} 个链接`);
@@ -226,20 +221,33 @@ const CollectPage = {
     }
   },
 
-  /** 公众号任务进度轮询(/api/articles/download-status/<id>) */
-  async pollMp(row) {
-    for (;;) {
-      await UI.sleep(2000);
-      if (!this.isTracked(row)) return;
-      if (i === -1) return;
-      let p;
-      try { p = await fetch(`/api/articles/download-status/${row.id}`).then(r => r.json()); } catch { continue; }
-      if (p && p.status) {
-        if (p.status === 'completed') { row.status = 'done'; row.done = p.completed || row.total; row.total = p.total || row.total; this.renderTasks(); return; }
-        if (p.status === 'failed') { row.status = 'failed'; row.error = '下载失败'; this.renderTasks(); return; }
-        if (p.status === 'running') { row.total = p.total || row.total; row.done = p.completed || 0; row.eta = p.current || ''; }
-      }
-      this.renderTasks();
-    }
+  /** 拉取统一采集队列(真实持久化任务) */
+  async refreshLiveTasks() {
+    if (API.state.mode !== 'live') return;
+    try {
+      const d = await API.collect.tasks();
+      this.liveTasks = (d.tasks || []).map(x => this.mapCollectTask(x)).reverse();
+      if (document.getElementById('taskList')) this.renderTasks();
+    } catch (err) { /* 静默:等待下个定时周期 */ }
   },
+
+  mapCollectTask(t) {
+    const stMap = { succeeded: 'done', running: 'running', queued: 'running', waiting_auth: 'running', cancel_requested: 'running', partially_succeeded: 'done', failed: 'failed', cancelled: 'canceled', interrupted: 'failed' };
+    const pr = t.progress || {};
+    const url0 = (t.params && t.params.urls && t.params.urls[0]) || '';
+    const brief = url0.replace(/^https?:\/\//, '').slice(0, 44) || `${t.platform || ''} ${t.kind || ''}`.trim();
+    const src = t.platform === 'mp' ? 'wechat-mp' : (t.platform || 'url');
+    const eta = t.status === 'interrupted' ? '服务重启中断'
+      : t.status === 'partially_succeeded' ? `${pr.failed || 0} 项失败`
+      : t.updated_at ? UI.ago(new Date(t.updated_at * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '';
+    return {
+      id: t.task_id, source: src,
+      title: brief + (pr.total > 1 ? ` · 共 ${pr.total} 项` : ''),
+      status: stMap[t.status] || 'canceled',
+      done: pr.done || 0, total: Math.max(1, pr.total || 1),
+      speed: pr.failed ? `${pr.failed} 失败` : '—', eta,
+      error: t.error || '', live: true,
+    };
+  },
+
 };

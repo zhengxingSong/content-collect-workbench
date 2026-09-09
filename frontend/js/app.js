@@ -95,13 +95,14 @@
     });
   }
 
-  function boot() {
+  async function boot() {
     buildShell();
     Object.entries(VIEWS).forEach(([name, page]) => {
       Router.register(name, { render: el => page.render(el), onShow: page.onShow ? page.onShow.bind(page) : null, meta: NAV.flatMap(g => g.items).find(i => i.view === name)?.meta });
     });
+    // 先探测后端可达性,再渲染首个视图:避免 probing 态误用演示数据
+    await API.probe();
     Router.init('dashboard');
-    API.probe();
   }
 
   document.addEventListener('DOMContentLoaded', boot);

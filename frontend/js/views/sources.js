@@ -2,7 +2,7 @@
 const SourcesPage = {
   patrolTimer: null,
 
-  render(el) {
+  async render(el) {
     const st = Mock.stats();
     const live = SourceRegistry.live(), planned = SourceRegistry.planned();
     el.innerHTML = `
@@ -69,34 +69,61 @@ const SourcesPage = {
       if (m) this.authModal(m.dataset.manage || m.dataset.plan);
     });
 
-    // 账号池
+    // 账号池(live:真实收藏账号 + 管理员态;mock:演示)
     const poolList = document.getElementById('poolList');
     const poolPill = { active: '<span class="pill ok">可用</span>', cooldown: '<span class="pill warn">冷却中</span>', banned: '<span class="pill err">已封禁</span>', invalid: '<span class="pill err">失效</span>' };
-    const poolRows = Object.entries(Mock.pools).flatMap(([src, list]) => list.map(p =>
-      `<div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get(src).color}">${UI.esc(SourceRegistry.get(src).label[0])}</div>
-       <div style="min-width:0;flex:1"><div class="src-name mono">${UI.esc(p.nickname)}</div><div class="src-sub">失败 ${p.failures} 次 · 最近使用 ${p.last_used}</div></div>
-       ${poolPill[p.status]}<button class="mini-btn" data-revive="${p.id}">复活</button></div>`)).join('');
-    poolList.innerHTML = poolRows || '<div class="empty">暂无账号</div>';
-    poolList.addEventListener('click', e => {
-      const b = e.target.closest('[data-revive]');
-      if (b) UI.toast('复活请求已提交', '账号将走浏览器会话重新建立登录态');
-    });
+    if (API.state.mode === 'live') {
+      this.renderLivePool(poolList);
+    } else {
+      this.renderMockPool(poolList, poolPill);
+      poolList.addEventListener('click', e => {
+        const b = e.target.closest('[data-revive]');
+        if (b) UI.toast('复活请求已提交', '账号将走浏览器会话重新建立登录态');
+      });
+    }
     document.getElementById('btnVerifyPool').addEventListener('click', async () => {
-      UI.toast('全量验活已启动', '逐账号探测登录态与健康度…');
-      await API.pools.verify();
+      if (API.state.mode === 'live') {
+        UI.toast('登录态探测已启动', '逐来源探测认证状态…');
+        const r = await this.probeAllSources();
+        UI.toast('探测完成', `${r.ok}/${r.total} 个来源状态正常`);
+      } else {
+        UI.toast('全量验活已启动', '逐账号探测登录态与健康度…');
+        await API.pools.verify();
+      }
     });
 
     // RSS
-    document.getElementById('rssList').innerHTML = Mock.rssSubs.map(r => `
-      <div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get('rss').color}">R</div>
-        <div style="min-width:0;flex:1"><div class="src-name">${UI.esc(r.nickname)}</div><div class="src-sub">上次同步 ${r.last_sync} · ${r.items} 篇</div></div>
-        <button class="toggle${r.enabled ? ' on' : ''}" data-rss="${r.fakeid}" aria-label="订阅开关"></button>
-        <button class="mini-btn" data-sync="${r.fakeid}">立即拉取</button></div>`).join('');
+    if (API.state.mode === 'live') {
+      try {
+        const d = await API.accounts.rss();
+        const subs = d.subscriptions || [];
+        document.getElementById('rssList').innerHTML = subs.length ? subs.map(r => `
+          <div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get('rss').color}">R</div>
+            <div style="min-width:0;flex:1"><div class="src-name">${UI.esc(r.nickname || r.fakeid)}</div><div class="src-sub">${UI.esc(r.fakeid)}</div></div>
+            <button class="toggle${r.enabled ? ' on' : ''}" data-rss="${r.fakeid}" aria-label="订阅开关"></button></div>`).join('')
+          : '<div class="empty">暂无 RSS 订阅 — 在公众号收藏中开启订阅</div>';
+      } catch (err) { document.getElementById('rssList').innerHTML = `<div class="empty">订阅加载失败:${UI.esc(err.message)}</div>`; }
+    } else {
+      document.getElementById('rssList').innerHTML = Mock.rssSubs.map(r => `
+        <div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get('rss').color}">R</div>
+          <div style="min-width:0;flex:1"><div class="src-name">${UI.esc(r.nickname)}</div><div class="src-sub">上次同步 ${r.last_sync} · ${r.items} 篇</div></div>
+          <button class="toggle${r.enabled ? ' on' : ''}" data-rss="${r.fakeid}" aria-label="订阅开关"></button>
+          <button class="mini-btn" data-sync="${r.fakeid}">立即拉取</button></div>`).join('');
+    }
     document.getElementById('rssList').addEventListener('click', e => {
       const tg = e.target.closest('[data-rss]');
-      if (tg) { const on = tg.classList.toggle('on'); const r = Mock.rssSubs.find(x => x.fakeid === tg.dataset.rss); r.enabled = on; UI.toast(`RSS 定时拉取已${on ? '开启' : '关闭'}`, r.nickname, on ? 'ok' : 'warn'); }
+      if (tg) {
+        const on = tg.classList.toggle('on');
+        if (API.state.mode === 'live') {
+          API.accounts.rssToggle(tg.dataset.rss, on)
+            .then(() => UI.toast(`RSS 订阅已${on ? '开启' : '关闭'}`, tg.dataset.rss, on ? 'ok' : 'warn'))
+            .catch(err => { tg.classList.toggle('on'); UI.toast('操作失败', err.message, 'err'); });
+        } else {
+          const r = Mock.rssSubs.find(x => x.fakeid === tg.dataset.rss); r.enabled = on; UI.toast(`RSS 定时拉取已${on ? '开启' : '关闭'}`, r.nickname, on ? 'ok' : 'warn');
+        }
+      }
       const sy = e.target.closest('[data-sync]');
-      if (sy) { const r = Mock.rssSubs.find(x => x.fakeid === sy.dataset.sync); UI.toast('增量拉取已触发', r.nickname); }
+      if (sy && API.state.mode !== 'live') { const r = Mock.rssSubs.find(x => x.fakeid === sy.dataset.sync); UI.toast('增量拉取已触发', r.nickname); }
     });
 
     // 巡检动画
@@ -111,7 +138,7 @@ const SourcesPage = {
         if (v >= 100) {
           clearInterval(this.patrolTimer);
           setTimeout(() => { wrap.style.visibility = 'hidden'; bar.style.width = '0%'; }, 900);
-          UI.toast('巡检完成', `${live.length} 个来源 · 发现 1 个账号待复活`, 'warn');
+          UI.toast('巡检完成', API.state.mode === 'live' ? `${live.length} 个来源状态已更新` : `${live.length} 个来源 · 发现 1 个账号待复活`, 'warn');
         }
       }, 260);
     });
@@ -139,6 +166,49 @@ const SourcesPage = {
         close();
       });
     });
+  },
+
+  async renderLivePool(poolList) {
+    poolList.innerHTML = '<div class="empty">加载中…</div>';
+    let rows = '';
+    try {
+      const st = await API.auth.mpAdmin.status();
+      const on = st.logged_in || st.is_login;
+      rows += `<div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get('wechat-mp').color}">M</div>
+        <div style="min-width:0;flex:1"><div class="src-name">公众号管理员通道</div><div class="src-sub">搜号 / 批量历史列表依赖</div></div>
+        ${on ? '<span class="pill ok">已认证</span>' : '<span class="pill warn">未认证</span>'}<button class="mini-btn" data-manage="wechat-mp">管理</button></div>`;
+    } catch (e) { rows += `<div class="empty">管理员状态探测失败</div>`; }
+    try {
+      const d = await API.accounts.list();
+      const accs = (d.accounts || []).slice(0, 6);
+      if (accs.length) rows += accs.map(a => `
+        <div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get('wechat-mp').color}">${UI.esc((a.nickname || '?')[0])}</div>
+          <div style="min-width:0;flex:1"><div class="src-name">${UI.esc(a.nickname || a.fakeid)}</div><div class="src-sub mono">${UI.esc(a.fakeid)}</div></div>
+          <span class="pill ok">已收藏</span></div>`).join('');
+      else rows += `<div class="src-row"><div class="empty" style="padding:14px">暂无收藏公众号</div></div>`;
+    } catch (e) { /* accounts 端点失败不阻塞 */ }
+    poolList.innerHTML = rows;
+  },
+
+  renderMockPool(poolList, poolPill) {
+    const poolRows = Object.entries(Mock.pools).flatMap(([src, list]) => list.map(p2 =>
+      `<div class="src-row"><div class="src-dot" style="background:${SourceRegistry.get(src).color}">${UI.esc(SourceRegistry.get(src).label[0])}</div>
+       <div style="min-width:0;flex:1"><div class="src-name mono">${UI.esc(p2.nickname)}</div><div class="src-sub">失败 ${p2.failures} 次 · 最近使用 ${p2.last_used}</div></div>
+       ${poolPill[p2.status]}<button class="mini-btn" data-revive="${p2.id}">复活</button></div>`)).join('');
+    poolList.innerHTML = poolRows || '<div class="empty">暂无账号</div>';
+  },
+
+  async probeAllSources() {
+    let ok = 0;
+    const checks = [];
+    checks.push(API.auth.mpAdmin.status().then(s => (s.logged_in || s.is_login) && ok++).catch(() => {}));
+    checks.push(API.auth.douyin.status().then(s => s.status !== 'error' && ok++).catch(() => {}));
+    checks.push(API.auth.kuaishou.status().then(s => s.status !== 'error' && ok++).catch(() => {}));
+    checks.push(API.auth.xhs.status().then(s => (s.login_state || {}).status !== 'failed' && ok++).catch(() => {}));
+    checks.push(API.auth.wechatChannels.proxyStatus().then(() => ok++).catch(() => {}));
+    checks.push(API.progress.bilibili().then(() => ok++).catch(() => {}));
+    await Promise.all(checks);
+    return { ok, total: checks.length };
   },
 
   /** 认证路由:按来源分发到对应平台的真实认证流程 */

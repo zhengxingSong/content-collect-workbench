@@ -2,7 +2,7 @@
 const SettingsPage = {
   tab: 'collect',
 
-  render(el) {
+  async render(el) {
     const live = SourceRegistry.live();
     el.innerHTML = `
       <div class="view-head">
@@ -27,13 +27,32 @@ const SettingsPage = {
     this.renderBody();
 
     document.getElementById('btnSaveSettings').addEventListener('click', async () => {
-      await API.settings.save(Mock.settings);
-      UI.toast('设置已保存', '已写回 /api/settings');
+      try {
+        await API.settings.save(Mock.settings);
+        UI.toast('设置已保存', '已写回 /api/settings');
+      } catch (err) { UI.toast('保存失败', err.message, 'err'); }
     });
   },
 
-  renderBody() {
+  async renderBody() {
     const body = document.getElementById('setBody');
+    if (API.state.mode === 'live') {
+      try {
+        const real = await API.settings.get();
+        Object.assign(Mock.settings, {
+          download_dir: real.download_dir ?? Mock.settings.download_dir,
+          max_articles: real.max_articles ?? 50,
+          request_delay: real.request_delay ?? 0.8,
+          auto_save_images: real.auto_save_images ?? true,
+          auto_save_videos: real.auto_save_videos ?? true,
+          rss_upload_enabled: real.rss_upload_enabled ?? false,
+          proxy: real.proxy ?? '',
+          appid: real.appid ?? real.wx_appid ?? '',
+          page_size: real.page_size ?? 10,
+          max_retries: real.max_retries ?? 3,
+        });
+      } catch (err) { /* 显示本地演示值 */ }
+    }
     const live = SourceRegistry.live();
     if (this.tab === 'collect') {
       body.innerHTML = `<div class="panel"><div class="panel-head"><div class="panel-title">采集行为</div></div><div class="panel-body">
@@ -50,7 +69,7 @@ const SettingsPage = {
         <div class="stat-line"><span class="k">代理池</span><span class="v">未启用</span></div>
         <div class="stat-line"><span class="k">TLS 指纹</span><span class="v">curl_cffi · chrome 模拟</span></div>
         <div class="stat-line"><span class="k">mitmproxy 证书</span><span class="v" style="color:var(--amber)">未安装(视频号采集时按需安装)</span></div>
-        <div class="stat-line"><span class="k">微信 AppID</span><span class="v mono">${UI.esc(Mock.settings.appid)}</span></div>
+        <div class="stat-line"><span class="k">微信 AppID</span><span class="v mono">${Mock.settings.appid ? UI.esc(Mock.settings.appid) : '未配置(短链采集不需要)'}</span></div>
         <div style="margin-top:14px;display:flex;gap:10px"><button class="btn" id="btnTestProxy">测试连通性</button><button class="btn" id="btnReauth">重新认证</button></div>
       </div></div>`;
     } else if (this.tab === 'credentials') {
@@ -94,7 +113,8 @@ const SettingsPage = {
     } else {
       body.innerHTML = `<div class="panel"><div class="panel-head"><div class="panel-title">关于</div></div><div class="panel-body">
         <div class="stat-line"><span class="k">产品</span><span class="v">内容收集工作台 v2.0</span></div>
-        <div class="stat-line"><span class="k">内核</span><span class="v mono">content-collect-workbench v2.0 · Flask + vanilla SPA</span></div>
+        <div class="stat-line"><span class="k">内核</span><span class="v mono">content-collect-workbench · Flask + vanilla SPA</span></div>
+        <div class="stat-line"><span class="k">内容库</span><span class="v" id="aboutLib">查询中…</span></div>
         <div class="stat-line"><span class="k">已接入来源</span><span class="v">${live.length} 个(+${SourceRegistry.planned().length} 规划)</span></div>
         <div class="stat-line"><span class="k">MCP 工具</span><span class="v mono">3 个(仅查询与下载,不含备份/恢复)</span></div>
         <div class="stat-line"><span class="k">定位声明</span><span class="v" style="font-weight:400;max-width:60%">仅供个人学习、技术研究与本地备份使用</span></div>
@@ -107,6 +127,12 @@ const SettingsPage = {
       Mock.settings[t.dataset.tog] = on;
     }));
     body.querySelectorAll('[data-set]').forEach(i => i.addEventListener('input', () => { Mock.settings[i.dataset.set] = i.value; }));
+    if (API.state.mode === 'live' && this.tab === 'about') {
+      API.library.list().then(d => {
+        const x = document.getElementById('aboutLib');
+        if (x) x.textContent = `${d.total} 条 · ${(d.entries || []).filter(e => e.collection_status === 'complete').length} 条完整`;
+      }).catch(() => { const x = document.getElementById('aboutLib'); if (x) x.textContent = '查询失败'; });
+    }
     const tp = document.getElementById('btnTestProxy');
     if (tp) tp.addEventListener('click', () => UI.toast('代理连通性正常', '延迟 42ms · 出口 IP 伪装生效'));
     const ra = document.getElementById('btnReauth');

@@ -3,6 +3,7 @@ const ServicesPage = {
   logTimer: null,
 
   render(el) {
+    if (API.state.mode === 'live') return this.renderLive(el);
     el.innerHTML = `
       <div class="view-head">
         <div><h1 class="view-title">服务监控</h1><div class="view-sub">进程监督 · 指数退避重启 · 每小时故障预算 5 次</div></div>
@@ -55,5 +56,59 @@ const ServicesPage = {
       renderLog();
     }, 2600);
     document.getElementById('btnClearLog').addEventListener('click', () => { lines = []; renderLog(); });
+  },
+  async renderLive(el) {
+    el.innerHTML = `
+      <div class="view-head">
+        <div><h1 class="view-title">服务监控</h1><div class="view-sub">真实探测 · 无模拟数据</div></div>
+        <div class="spacer"></div>
+        <span class="svc-pill"><span class="svc-dot" id="svcDot"></span><span id="svcTxt">探测中…</span></span>
+      </div>
+      <div class="kpi-grid stagger" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi"><div class="kpi-top">后端 API</div><div class="k-val" id="svBackend">—</div><div class="k-trend">127.0.0.1:5200</div></div>
+        <div class="kpi" data-accent="sky"><div class="kpi-top">运行中任务</div><div class="k-val" id="svRun">—</div><div class="k-trend">统一采集队列</div></div>
+        <div class="kpi" data-accent="amber"><div class="kpi-top">备份文件</div><div class="k-val" id="svBk">—</div><div class="k-trend">data/backups</div></div>
+        <div class="kpi" data-accent="rose"><div class="kpi-top">mitm 代理</div><div class="k-val" id="svMitm">—</div><div class="k-trend">视频号 HTTPS 注入</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><div class="panel-title">服务实例</div><div class="panel-sub">按当前部署形态探测</div></div></div>
+        <div id="svcList"></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head"><div><div class="panel-title">运行日志</div><div class="panel-sub">后端暂未提供日志查询端点</div></div></div>
+        <div class="empty">日志流需要后端提供日志 API 后接入(当前不在演示模式下显示模拟日志)</div>
+      </div>`;
+    const t0 = performance.now();
+    let latency = null, backendOk = false;
+    try { await API.liveGet('svc', '/api/settings', { ok: 1 }); backendOk = true; latency = Math.round(performance.now() - t0); } catch (e) { /* 不可达 */ }
+    const dot = document.getElementById('svcDot'), txt = document.getElementById('svcTxt');
+    if (dot) dot.className = 'svc-dot' + (backendOk ? '' : ' err');
+    if (txt) txt.textContent = backendOk ? `后端就绪 · ${latency}ms` : '后端不可达';
+    const set = (id, v) => { const x = document.getElementById(id); if (x) x.textContent = v; };
+    set('svBackend', backendOk ? `${latency}ms` : '离线');
+    let runN = 0, tasks = [];
+    try { tasks = (await API.collect.tasks()).tasks || []; runN = tasks.filter(x => ['running', 'queued', 'waiting_auth'].includes(x.status)).length; } catch (e) { /* noop */ }
+    set('svRun', String(runN));
+    let bkN = 0;
+    try { bkN = ((await API.library.backups.list()).backups || []).length; } catch (e) { /* noop */ }
+    set('svBk', String(bkN));
+    let mitmTxt = '查询失败', mitmOk = false;
+    try { const pr = await API.auth.wechatChannels.proxyStatus(); mitmOk = !!pr.running; mitmTxt = pr.running ? '运行中' : '未启动'; } catch (e) { /* noop */ }
+    set('svMitm', mitmTxt);
+    const list = document.getElementById('svcList');
+    if (list) {
+      const rows = [
+        { name: 'Flask 后端', url: '127.0.0.1:5200 · API + SPA', ok: backendOk, sub: backendOk ? `就绪 · 延迟 ${latency}ms` : '不可达' },
+        { name: '统一采集队列', url: '/api/collect/tasks', ok: runN >= 0, sub: `${runN} 个任务进行中 · 共 ${tasks.length} 条记录` },
+        { name: 'mitmproxy', url: '127.0.0.1:5202 · 视频号注入', ok: mitmOk, sub: mitmTxt + '(按需启动)' },
+        { name: 'MCP 服务', url: 'stdio / 3333', ok: true, sub: '由桌面壳或 MCPhub 托管,浏览器内无法直接探测' },
+      ];
+      list.innerHTML = rows.map(r => `
+        <div class="svc-head">
+          <div style="min-width:0;flex:1"><div class="svc-title">${UI.esc(r.name)}</div><div class="svc-url mono">${UI.esc(r.url)}</div></div>
+          ${r.ok ? '<span class="pill ok"><span class="svc-dot"></span>正常</span>' : '<span class="pill warn"><span class="svc-dot idle"></span>未运行</span>'}
+          <div style="max-width:40%;text-align:right;font-size:11.5px;color:var(--text-3)">${UI.esc(r.sub)}</div>
+        </div>`).join('');
+    }
   },
 };
