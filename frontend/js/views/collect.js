@@ -1,8 +1,11 @@
-/** 视图:采集任务 — 跨来源统一任务中心(新建任务自动识别来源) */
+/** 视图:采集任务 — 跨来源统一任务中心(新建任务自动识别来源)
+ *  数据边界:live 模式只显示真实历史 + 本次会话提交的真实任务;
+ *  演示任务行(Mock.tasks)仅在"演示数据"模式下出现。 */
 const CollectPage = {
   filter: 'all',
   timer: null,
-  liveTasks: [],   // 真实后端历史(/api/articles/history)映射的任务行
+  liveTasks: [],      // 真实后端历史(/api/articles/history)映射的任务行
+  sessionTasks: [],   // 本次会话提交的真实任务行(live 模式)
 
   render(el) {
     el.innerHTML = `
@@ -15,7 +18,7 @@ const CollectPage = {
         <div class="kpi"><div class="kpi-top">进行中</div><div class="k-val" id="cRun">—</div></div>
         <div class="kpi" data-accent="sky"><div class="kpi-top">今日完成</div><div class="k-val" id="cDone">—</div></div>
         <div class="kpi" data-accent="amber"><div class="kpi-top">失败待重试</div><div class="k-val" id="cFail">—</div></div>
-        <div class="kpi" data-accent="rose"><div class="kpi-top">队列速度</div><div class="k-val">15.6<small> MB/s</small></div></div>
+        <div class="kpi" data-accent="rose"><div class="kpi-top">队列速度</div><div class="k-val" id="cSpeed">—</div></div>
       </div>
       <div class="panel">
         <div class="panel-head"><div class="panel-title">任务队列</div><div class="spacer"></div>
@@ -48,7 +51,9 @@ const CollectPage = {
       this.renderTasks();
     });
     clearInterval(this.timer);
+    // 演示进度推进仅在 mock 模式运行;live 模式的真实任务由各自 poller 驱动
     this.timer = setInterval(() => {
+      if (API.state.mode !== 'mock') return;
       const running = Mock.tasks.filter(t => t.status === 'running');
       let changed = false;
       for (const t of running) {
@@ -59,14 +64,34 @@ const CollectPage = {
     }, 1500);
   },
 
+  /** 当前应显示的任务集合:live=真实历史+会话任务;mock=演示任务 */
+  visibleTasks() {
+    return API.state.mode === 'live'
+      ? [...this.liveTasks, ...this.sessionTasks]
+      : Mock.tasks;
+  },
+
+  track(row) {
+    this.sessionTasks.unshift(row);
+    return row;
+  },
+  isTracked(row) {
+    return this.sessionTasks.includes(row) || Mock.tasks.includes(row);
+  },
+  findTask(id) {
+    return this.sessionTasks.find(x => x.id === id) || Mock.tasks.find(x => x.id === id);
+  },
+
   renderTasks() {
     const list = document.getElementById('taskList');
     if (!list) return;
-    const all = [...this.liveTasks, ...Mock.tasks];
+    const all = this.visibleTasks();
     const rows = all.filter(t => this.filter === 'all' || t.status === this.filter);
     document.getElementById('cRun').textContent = all.filter(t => t.status === 'running').length;
     document.getElementById('cDone').textContent = all.filter(t => t.status === 'done').length;
     document.getElementById('cFail').textContent = all.filter(t => t.status === 'failed').length;
+    const speed = document.getElementById('cSpeed');
+    if (speed) speed.innerHTML = API.state.mode === 'live' ? '—' : '15.6<small> MB/s</small>';
     if (!rows.length) { list.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>暂无该状态任务</div>`; return; }
     const statusPill = { running: '<span class="pill sky"><span class="svc-dot" style="background:var(--sky)"></span>进行中</span>', done: '<span class="pill ok">已完成</span>', failed: '<span class="pill err">失败</span>', canceled: '<span class="pill">已取消</span>' };
     list.innerHTML = rows.map((t, i) => {
@@ -81,11 +106,11 @@ const CollectPage = {
       </div>`;
     }).join('');
     list.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => {
-      const t = Mock.tasks.find(x => x.id === b.dataset.cancel);
+      const t = this.findTask(b.dataset.cancel);
       if (t) { t.status = 'canceled'; UI.toast('任务已取消', t.title, 'warn'); this.renderTasks(); }
     }));
     list.querySelectorAll('[data-retry]').forEach(b => b.addEventListener('click', () => {
-      const t = Mock.tasks.find(x => x.id === b.dataset.retry);
+      const t = this.findTask(b.dataset.retry);
       if (t) { t.status = 'running'; t.done = 0; UI.toast('已重新入队', t.title); this.renderTasks(); }
     }));
   },
@@ -137,7 +162,7 @@ const CollectPage = {
             UI.toast(`${s.label} 任务已提交到后端`, resp.message || `${list.length} 个链接`);
           }
         } catch (err) {
-          Mock.tasks.unshift({ id: `err_${Date.now()}_${id}`, source: id, title: `${s.label} · ${list[0].slice(0, 46)}`, status: 'failed', done: 0, total: 1, speed: '—', eta: '', error: err.message });
+          this.track({ id: `err_${Date.now()}_${id}`, source: id, title: `${s.label} · ${list[0].slice(0, 46)}`, status: 'failed', done: 0, total: 1, speed: '—', eta: '', error: err.message });
           UI.toast(`${s.label} 提交失败`, err.message, 'err');
         }
       }
@@ -151,21 +176,18 @@ const CollectPage = {
     const brief = list[0].replace(/^https?:\/\//, '').slice(0, 44);
     if (source === 'bilibili' && resp && resp.task_started) {
       // B站是全局单任务:progress 端点驱动
-      const row = { id: `bili_${Date.now()}`, source, title: `B站后台下载 · ${brief}`, status: 'running', done: 0, total: 1, speed: '—', eta: '后台任务', biliPoll: true };
-      Mock.tasks.unshift(row);
+      const row = this.track({ id: `bili_${Date.now()}`, source, title: `B站后台下载 · ${brief}`, status: 'running', done: 0, total: 1, speed: '—', eta: '后台任务', biliPoll: true });
       this.pollBili(row);
     } else if (source === 'xhs' && resp && resp.task_id) {
-      const row = { id: resp.task_id, source, title: `小红书下载 · ${resp.count || list.length} 条 · ${brief}`, status: 'running', done: 0, total: resp.count || list.length, speed: '—', eta: '已提交', xhsPoll: true };
-      Mock.tasks.unshift(row);
+      const row = this.track({ id: resp.task_id, source, title: `小红书下载 · ${resp.count || list.length} 条 · ${brief}`, status: 'running', done: 0, total: resp.count || list.length, speed: '—', eta: '已提交', xhsPoll: true });
       this.pollXhs(row);
     } else if (resp && resp.task_id && (source === 'wechat-mp' || source === 'rss' || source === 'url')) {
       // 公众号通道:SSE/轮询 download-status
-      const row = { id: resp.task_id, source, title: `公众号下载 ${resp.task_id} · ${list.length} 篇`, status: 'running', done: 0, total: list.length, speed: '—', eta: '已提交', mpPoll: true };
-      Mock.tasks.unshift(row);
+      const row = this.track({ id: resp.task_id, source, title: `公众号下载 ${resp.task_id} · ${list.length} 篇`, status: 'running', done: 0, total: list.length, speed: '—', eta: '已提交', mpPoll: true });
       this.pollMp(row);
     } else {
       const title = (resp && (resp.title || (resp.data && resp.data.title))) || brief;
-      Mock.tasks.unshift({ id: `ok_${Date.now()}_${source}`, source, title: `${s.label} · ${title}`, status: 'done', done: 1, total: 1, speed: '—', eta: '已完成' });
+      this.track({ id: `ok_${Date.now()}_${source}`, source, title: `${s.label} · ${title}`, status: 'done', done: 1, total: 1, speed: '—', eta: '已完成' });
     }
   },
 
@@ -173,7 +195,7 @@ const CollectPage = {
   async pollBili(row) {
     for (;;) {
       await UI.sleep(2000);
-      const i = Mock.tasks.indexOf(row);
+      if (!this.isTracked(row)) return;
       if (i === -1) return;
       let p;
       try { p = await API.progress.bilibili(); } catch { continue; }
@@ -191,7 +213,7 @@ const CollectPage = {
   async pollXhs(row) {
     for (;;) {
       await UI.sleep(2200);
-      const i = Mock.tasks.indexOf(row);
+      if (!this.isTracked(row)) return;
       if (i === -1) return;
       let p;
       try { p = await API.progress.xhs(row.id); } catch { continue; }
@@ -208,7 +230,7 @@ const CollectPage = {
   async pollMp(row) {
     for (;;) {
       await UI.sleep(2000);
-      const i = Mock.tasks.indexOf(row);
+      if (!this.isTracked(row)) return;
       if (i === -1) return;
       let p;
       try { p = await fetch(`/api/articles/download-status/${row.id}`).then(r => r.json()); } catch { continue; }
