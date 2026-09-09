@@ -4,6 +4,9 @@
 const CollectPage = {
   filter: 'all',
   timer: null,
+  page: 1,
+  pageSize: 10,
+  _sig: '',
   liveTasks: [],      // 真实后端历史(/api/articles/history)映射的任务行
   sessionTasks: [],   // 本次会话提交的真实任务行(live 模式)
 
@@ -27,9 +30,14 @@ const CollectPage = {
           </div>
         </div>
         <div id="taskList"></div>
+        <div class="pagination"><div class="page-info" id="taskPageInfo"></div><div class="page-btns" id="taskPageBtns"></div></div>
       </div>`;
 
     document.getElementById('btnNewTask').addEventListener('click', () => this.newTaskModal());
+    document.getElementById('taskPageBtns').addEventListener('click', e => {
+      const b = e.target.closest('[data-pg]'); if (!b || b.disabled) return;
+      this.page = Math.max(1, +b.dataset.pg); this.renderTasks();
+    });
     document.getElementById('taskSeg').addEventListener('click', e => {
       const b = e.target.closest('[data-f]'); if (!b) return;
       this.filter = b.dataset.f;
@@ -73,22 +81,32 @@ const CollectPage = {
     return this.sessionTasks.find(x => x.id === id) || Mock.tasks.find(x => x.id === id);
   },
 
-  renderTasks() {
+  renderTasks(force = false) {
     const list = document.getElementById('taskList');
     if (!list) return;
     const all = this.visibleTasks();
+    // 内容未变化时跳过重渲染,避免轮询导致的整页闪烁
+    const sig = JSON.stringify([this.filter, all.map(t => [t.id, t.status, t.done, t.total, t.eta, t.speed, t.error])]);
+    if (!force && sig === this._sig) return;
+    this._sig = sig;
     const rows = all.filter(t => this.filter === 'all' || t.status === this.filter);
     document.getElementById('cRun').textContent = all.filter(t => t.status === 'running').length;
     document.getElementById('cDone').textContent = all.filter(t => t.status === 'done').length;
     document.getElementById('cFail').textContent = all.filter(t => t.status === 'failed').length;
     const speed = document.getElementById('cSpeed');
     if (speed) speed.innerHTML = API.state.mode === 'live' ? '—' : '15.6<small> MB/s</small>';
-    if (!rows.length) { list.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>暂无该状态任务</div>`; return; }
+    const totalPages = Math.max(1, Math.ceil(rows.length / this.pageSize));
+    if (this.page > totalPages) this.page = totalPages;
+    const slice = rows.slice((this.page - 1) * this.pageSize, this.page * this.pageSize);
+    const info = document.getElementById('taskPageInfo'), btns = document.getElementById('taskPageBtns');
+    if (info) info.textContent = rows.length ? `共 ${rows.length} 条 · 第 ${this.page}/${totalPages} 页` : '';
+    if (btns) btns.innerHTML = UI.pageBtns(this.page, totalPages);
+    if (!slice.length) { list.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>暂无该状态任务</div>`; return; }
     const statusPill = { running: '<span class="pill sky"><span class="svc-dot" style="background:var(--sky)"></span>进行中</span>', done: '<span class="pill ok">已完成</span>', failed: '<span class="pill err">失败</span>', canceled: '<span class="pill">已取消</span>' };
-    list.innerHTML = rows.map((t, i) => {
+    list.innerHTML = slice.map(t => {
       const s = SourceRegistry.get(t.source);
       const pct = Math.round(t.done / t.total * 100);
-      return `<div class="task-row" style="animation:viewIn .4s var(--ease) ${i * 50}ms backwards">
+      return `<div class="task-row">
         <div class="src-dot" style="background:${s.color}">${UI.esc(s.label[0])}</div>
         <div class="task-main"><div class="task-title">${UI.esc(t.title)}</div>
           <div class="task-meta">${statusPill[t.status]}<span>${t.speed}</span>${t.eta ? `<span>· ${t.eta}</span>` : ''}${t.error ? `<span style="color:var(--rose)">· ${UI.esc(t.error)}</span>` : ''}</div></div>
@@ -98,11 +116,11 @@ const CollectPage = {
     }).join('');
     list.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => {
       const t = this.findTask(b.dataset.cancel);
-      if (t) { t.status = 'canceled'; UI.toast('任务已取消', t.title, 'warn'); this.renderTasks(); }
+      if (t) { t.status = 'canceled'; UI.toast('任务已取消', t.title, 'warn'); this.renderTasks(true); }
     }));
     list.querySelectorAll('[data-retry]').forEach(b => b.addEventListener('click', () => {
       const t = this.findTask(b.dataset.retry);
-      if (t) { t.status = 'running'; t.done = 0; UI.toast('已重新入队', t.title); this.renderTasks(); }
+      if (t) { t.status = 'running'; t.done = 0; UI.toast('已重新入队', t.title); this.renderTasks(true); }
     }));
   },
 
@@ -161,7 +179,7 @@ const CollectPage = {
           UI.toast(`${s.label} 提交失败`, err.message, 'err');
         }
       }
-      this.renderTasks();
+      this.renderTasks(true);
     });
   },
 

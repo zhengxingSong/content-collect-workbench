@@ -70,8 +70,9 @@ const LibraryPage = {
     document.getElementById('libBody').addEventListener('click', e => {
       const chk = e.target.closest('[data-sel]');
       if (chk) { chk.checked ? this.state.selected.add(chk.dataset.sel) : this.state.selected.delete(chk.dataset.sel); this.renderTable(); return; }
-      const btn = e.target.closest('[data-open]'); if (btn) { this.detail(btn.dataset.open); return; }
-      const dir = e.target.closest('[data-dir]'); if (dir) { this.openFolder(dir.dataset.dir); return; }
+      const btn = e.target.closest('[data-open]'); if (btn) { e.stopPropagation(); this.detail(btn.dataset.open); return; }
+      const dir = e.target.closest('[data-dir]'); if (dir) { e.stopPropagation(); this.openFolder(dir.dataset.dir); return; }
+      const pv = e.target.closest('[data-preview]'); if (pv) { e.stopPropagation(); window.open(API.library.previewUrl(pv.dataset.preview), '_blank'); return; }
       const tr = e.target.closest('tr[data-id]');
       if (tr) this.detail(tr.dataset.id);
     });
@@ -210,7 +211,7 @@ const LibraryPage = {
         <td class="mono">${e.file_count ?? '—'}${e.failed_media_count ? `<span style="color:var(--rose)"> (-${e.failed_media_count})</span>` : ''}</td>
         <td class="mono">${this.fmtSize(e.total_bytes)}</td>
         <td class="mono" style="font-size:11.5px;color:var(--text-3)">${(e.collect_time || '').replace('T', ' ').slice(0, 16)}</td>
-        <td><div class="row-actions"><button class="mini-btn" data-open="${e.id}">详情</button><button class="mini-btn" data-dir="${e.id}">打开目录</button></div></td>
+        <td><div class="row-actions"><button class="mini-btn" data-preview="${e.id}">预览</button><button class="mini-btn" data-open="${e.id}">详情</button><button class="mini-btn" data-dir="${e.id}">打开目录</button></div></td>
       </tr>`;
     }).join('');
     if (slice.length) body.parentElement.querySelectorAll('.empty').forEach(x => x.remove());
@@ -230,18 +231,21 @@ const LibraryPage = {
     const { close, overlay } = UI.openModal(`
       <div class="modal-head"><div><div class="modal-title">条目详情</div><div class="modal-sub mono">${UI.esc(id)}</div></div><button class="icon-btn modal-x" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
       <div class="modal-body"><div class="empty">加载中…</div></div>`, { wide: true });
+    // 预取引用:弹窗被关闭(断开 DOM)后不再写入,杜绝 null 竞态
+    const bodyEl = overlay.querySelector('.modal-body');
+    const footEl = overlay.querySelector('.modal-foot');
     let e;
     try { e = (await API.library.detail(id)).entry; } catch (err) {
-      overlay.querySelector('.modal-body').innerHTML = `<div class="empty">加载失败:${UI.esc(err.message)}</div>`;
+      if (bodyEl.isConnected) bodyEl.innerHTML = `<div class="empty">加载失败:${UI.esc(err.message)}</div>`;
       return;
     }
-    if (!overlay.isConnected) return;
+    if (!bodyEl.isConnected) return;
     const author = typeof e.author === 'string' ? e.author : e.author?.name || '';
     const failedSet = new Set(e.failed_items || []);
     const files = e.files || [];
     const kindOf = f => (f.mime || f.kind || '').startsWith('image') ? 'IMG' : (f.mime || '').startsWith('video') ? 'VID' : (f.mime || '').startsWith('audio') ? 'AUD' : 'T';
     const statusOf = f => f.status ? f.status : failedSet.has(f.path) ? 'fail' : 'ok';
-    overlay.querySelector('.modal-body').innerHTML = `
+    bodyEl.innerHTML = `
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">${UI.integrityPill(e.collection_status)}<span class="kind">${UI.esc(e.content_type || 'article')}</span><span class="badge">${files.length} 文件</span><span class="badge">${this.fmtSize(e.total_bytes)}</span></div>
       <div class="view-sub" style="margin-bottom:10px">${UI.esc(e.title || '')} · ${UI.esc(author)} · ${(e.collect_time || '').replace('T', ' ').slice(0, 16)}</div>
       <div class="panel-title" style="font-size:12.5px;margin-bottom:8px">文件清单 <span style="color:var(--text-3);font-weight:400">· sha256</span></div>
@@ -253,7 +257,7 @@ const LibraryPage = {
           <span class="mono" style="color:var(--text-3);font-size:10.5px">${(f.sha256 || '').slice(0, 8) || this.fmtSize(f.size)}</span>
         </div>`).join('') || '<div class="empty">无文件清单</div>'}</div>
       ${(e.failed_items || []).length ? `<div class="warn-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v5m0 3.5v.5M10.3 3.8L1.9 18a2 2 0 001.7 3h16.8a2 2 0 001.7-3L13.7 3.8a2 2 0 00-3.4 0z"/></svg><span>${e.failed_items.length} 项资源采集失败,可尝试"重试媒体"</span></div>` : ''}`;
-    overlay.querySelector('.modal-foot').innerHTML = `
+    footEl.innerHTML = `
       <button class="btn" data-close>关闭</button>
       <button class="btn" id="mOpenDir">打开目录</button>
       <button class="btn" id="mFiles">资源文件</button>

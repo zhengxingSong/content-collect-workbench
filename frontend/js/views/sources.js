@@ -72,6 +72,10 @@ const SourcesPage = {
     // 账号池(live:真实收藏账号 + 管理员态;mock:演示)
     const poolList = document.getElementById('poolList');
     const poolPill = { active: '<span class="pill ok">可用</span>', cooldown: '<span class="pill warn">冷却中</span>', banned: '<span class="pill err">已封禁</span>', invalid: '<span class="pill err">失效</span>' };
+    poolList.addEventListener('click', e => {
+      const m = e.target.closest('[data-manage]');
+      if (m) { e.stopPropagation(); this.authModal(m.dataset.manage); }
+    });
     if (API.state.mode === 'live') {
       this.renderLivePool(poolList);
     } else {
